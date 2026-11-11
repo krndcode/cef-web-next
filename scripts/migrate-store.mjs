@@ -35,6 +35,9 @@ try {
     "0001_store",
     "0002_neon_auth",
     "0003_production_media",
+    "0004_customer_profile",
+    "0005_admin_storefront",
+    "0006_admin_message_read_state",
   ];
   for (const migrationName of migrationNames) {
     const alreadyApplied = await client.query(

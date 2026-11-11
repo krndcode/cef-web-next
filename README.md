@@ -9,6 +9,8 @@ payments. Configure the following server-side environment variables in
 - `DATABASE_URL` — PostgreSQL connection string. Keep it private.
 - `APP_URL` — canonical origin used for Paystack callbacks (for example,
   `http://localhost:3000` in development).
+- `RESEND_API_KEY` — private Resend API key for order and delivery notifications.
+- `RESEND_FROM_EMAIL` — sender address verified with Resend.
 - `ADMIN_EMAIL` — email address of the account to promote to store admin.
 - `PAYSTACK_SECRET_KEY` — Paystack test or live secret key. Never expose it to
   browser code.
@@ -48,17 +50,37 @@ The migration and admin promotion scripts read `cef-web-next/.env.local`
 automatically.
 
 Create and verify a Neon Auth account at `/store` using the email configured as
-`ADMIN_EMAIL`, stop the development server, then promote that active account:
+`ADMIN_EMAIL`, then promote that active account:
 
 ```bash
 npm run store:promote-admin
 ```
 
-Sign back in and open `/admin/store` to add product images, set actual stock,
-manage orders, and enable or suspend customer accounts. The three sample
+Sign back in and open `/admin` for the unified administration workspace. The
+first promoted administrator becomes the primary admin and can grant admin
+access to existing verified bookstore accounts. The three sample
 products are seeded with zero stock until an admin enters the available
 inventory. Product images should be placed under `public/` and entered as
 local paths such as `/products/book-cover.jpg`.
+
+The store catalog groups products into V.O.C Books, Study Parchments, and
+Other Products. Study Parchments are free PDF resources; place their PDF files
+under `private-resources/resources/` and set the matching `/resources/<file>.pdf`
+path in the product form. The app grants access at free checkout and streams the
+PDF through an authenticated download route; do not put downloadable PDFs in
+`public/`.
+
+The `0005_admin_storefront` migration initializes the primary admin from the
+oldest active admin account and adds the support inbox, free-resource access,
+and product-type fields. Apply migrations with the direct `DATABASE_URL_UNPOOLED`
+connection before deploying code that reads these fields.
+
+Messages submitted through `/contact` are stored in the support inbox. An admin
+can save a reply and open their configured email application to send it. Store
+orders and confirmed delivery fees are emailed automatically through Resend.
+Configure `RESEND_API_KEY` and a sender address verified with Resend; `APP_URL`
+is used to create the customer's direct link to the order and payment section.
+Dashboard layout preferences are stored in the admin's browser.
 
 Configure the Paystack webhook URL as
 `https://<your-domain>/api/payments/paystack`. Test the full checkout using
@@ -69,6 +91,11 @@ password hashes cannot be transferred, so customers need to create and verify a
 Neon Auth account; verified accounts are linked to existing store profiles by
 email to preserve order history and admin roles.
 
+Signed-in customers can manage their name and default delivery details at
+`/store/profile`. Run `npm run db:migrate` after pulling schema changes to add
+the nullable profile fields; saved defaults prefill checkout but can still be
+edited per order.
+
 ## Production media library
 
 The `/production` page is backed by PostgreSQL tables described in
@@ -77,8 +104,8 @@ migration runner. Run `npm run db:migrate` to create the production media
 tables and seed the five broadcast categories. Public broadcasts can be
 filtered with `GET /api/videos?categorySlug=<slug>`.
 
-Administrators can manage videos, feature a single broadcast, and publish or
-unpublish content at `/admin/production` (also linked from `/admin/store`).
+Administrators can manage videos and categories, feature a single broadcast,
+and publish or unpublish content in the unified dashboard's Production tab.
 Video URLs are validated as YouTube links, and thumbnails are generated from
 the video ID. Optional study notes can be linked with an HTTPS URL or a path
 under `public/`.

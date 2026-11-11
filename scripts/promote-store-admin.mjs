@@ -21,7 +21,11 @@ const pool = new Pool({ connectionString, max: 1 });
 try {
   const result = await pool.query(
     `UPDATE store_users
-     SET role = 'admin', updated_at = NOW()
+     SET role = 'admin',
+         is_primary_admin = NOT EXISTS (
+           SELECT 1 FROM store_users WHERE is_primary_admin = TRUE
+         ),
+         updated_at = NOW()
      WHERE email = $1 AND is_active = TRUE
      RETURNING email`,
     [email],

@@ -36,10 +36,29 @@ export async function PATCH(request: Request, context: RouteContext) {
       return NextResponse.json({ error: "Check all product fields and try again." }, { status: 400 });
     }
     const product = parsed.data;
+    if (!["V.O.C Books", "Study Parchments", "Other Products"].includes(product.category)) {
+      const current = await getStoreDb().query<{ category: string }>(
+        "SELECT category FROM store_products WHERE id = $1",
+        [id],
+      );
+      if (!current.rows[0]) {
+        return NextResponse.json({ error: "Product not found." }, { status: 404 });
+      }
+      if (current.rows[0].category !== product.category) {
+        return NextResponse.json({ error: "Choose an available store category." }, { status: 400 });
+      }
+    }
     const price = parseGhsToPesewas(product.priceGhs);
-    if (price === null || !validImagePath(product.imageUrl)) {
+    if (
+      price === null ||
+      !validImagePath(product.imageUrl) ||
+      (product.productType === "free_resource" &&
+        (!product.downloadPath.startsWith("/resources/") ||
+          product.downloadPath.startsWith("//") ||
+          product.downloadPath.split("/").includes("..")))
+    ) {
       return NextResponse.json(
-        { error: "Enter a valid price and a local image path beginning with /." },
+        { error: "Use a valid price, local image path, and PDF file path in /resources/." },
         { status: 400 },
       );
     }
@@ -48,7 +67,7 @@ export async function PATCH(request: Request, context: RouteContext) {
       `UPDATE store_products
        SET title = $2, category = $3, description = $4, price_pesewas = $5,
            stock_quantity = $6, image_url = $7, badge = $8,
-           is_active = $9, updated_at = NOW()
+           product_type = $9, download_path = $10, is_active = $11, updated_at = NOW()
        WHERE id = $1
        RETURNING id`,
       [
@@ -56,10 +75,12 @@ export async function PATCH(request: Request, context: RouteContext) {
         product.title,
         product.category,
         product.description,
-        price,
-        product.stockQuantity,
+        product.productType === "free_resource" ? 0 : price,
+        product.productType === "free_resource" ? 0 : product.stockQuantity,
         product.imageUrl || null,
         product.badge || null,
+        product.productType,
+        product.productType === "free_resource" ? product.downloadPath : null,
         product.isActive,
       ],
     );

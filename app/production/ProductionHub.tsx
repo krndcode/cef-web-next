@@ -24,6 +24,7 @@ export default function ProductionHub({
   const [selectedVideoId, setSelectedVideoId] = useState(
     videos.find((video) => video.isFeatured)?.id ?? videos[0]?.id ?? "",
   );
+  const [autoplay, setAutoplay] = useState(false);
   const [playlistIds, setPlaylistIds] = useState<string[]>([]);
   const [notice, setNotice] = useState("");
   const countedVideos = useRef(new Set<string>());
@@ -69,6 +70,7 @@ export default function ProductionHub({
     .slice(0, 3);
 
   function selectVideo(video: ProductionVideo, scrollToPlayer = false) {
+    setAutoplay(true);
     setSelectedVideoId(video.id);
     if (scrollToPlayer) {
       document.getElementById("featured-player")?.scrollIntoView({
@@ -118,10 +120,14 @@ export default function ProductionHub({
     <div className="min-h-screen bg-gray-950 font-sans text-gray-100">
       <HeroBroadcast
         video={activeVideo}
+        autoplay={autoplay}
         nextUp={nextUp}
         playlistIds={playlistIds}
         notice={notice}
-        onSelect={(video) => selectVideo(video)}
+        onSelect={(video) => {
+          setAutoplay(true);
+          selectVideo(video);
+        }}
         onShare={shareVideo}
         onTogglePlaylist={togglePlaylist}
       />

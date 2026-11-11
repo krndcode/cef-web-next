@@ -29,7 +29,11 @@ function StoreSetupNotice({ databaseReady }: { databaseReady: boolean }) {
   );
 }
 
-export default async function StorePage() {
+type StorePageProps = {
+  searchParams: Promise<{ order?: string | string[] }>;
+};
+
+export default async function StorePage({ searchParams }: StorePageProps) {
   if (!process.env.DATABASE_URL) {
     return <StoreSetupNotice databaseReady={false} />;
   }
@@ -55,5 +59,13 @@ export default async function StorePage() {
   if (setupIssue) {
     return <StoreSetupNotice databaseReady />;
   }
-  return <Storefront user={user} products={products} orders={orders} />;
+  const { order } = await searchParams;
+  return (
+    <Storefront
+      user={user}
+      products={products}
+      orders={orders}
+      focusOrderId={typeof order === "string" ? order : undefined}
+    />
+  );
 }

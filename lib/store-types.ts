@@ -4,8 +4,15 @@ export type StoreUser = {
   id: string;
   name: string;
   email: string;
+  phone: string | null;
+  addressLine1: string | null;
+  addressLine2: string | null;
+  city: string | null;
+  region: string | null;
+  deliveryNote: string | null;
   role: StoreRole;
   isActive: boolean;
+  isPrimaryAdmin: boolean;
   createdAt: string;
 };
 
@@ -19,6 +26,8 @@ export type StoreProduct = {
   stockQuantity: number;
   imageUrl: string | null;
   badge: string | null;
+  productType: "book" | "free_resource";
+  downloadPath: string | null;
   isActive: boolean;
 };
 

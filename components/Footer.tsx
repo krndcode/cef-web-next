@@ -44,7 +44,7 @@ export default function Footer() {
                 </svg>
               </a>
               <a 
-                href="https://instagram.com/christtheentiretyfoundation?r=nametag" 
+                href="https://www.instagram.com/christ_the_entirety_foundation?psln=b2p1bWt2M3dtcHR1" 
                 target="_blank" 
                 rel="noopener noreferrer" 
                 className="w-9 h-9 rounded-full bg-white/10 flex items-center justify-center text-gray-300 hover:bg-cefPurple hover:text-white transition"

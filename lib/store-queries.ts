@@ -17,6 +17,8 @@ type ProductRow = {
   stock_quantity: number;
   image_url: string | null;
   badge: string | null;
+  product_type: "book" | "free_resource";
+  download_path: string | null;
   is_active: boolean;
 };
 
@@ -57,6 +59,8 @@ function toProduct(row: ProductRow): StoreProduct {
     stockQuantity: row.stock_quantity,
     imageUrl: row.image_url,
     badge: row.badge,
+    productType: row.product_type,
+    downloadPath: row.download_path,
     isActive: row.is_active,
   };
 }
@@ -113,7 +117,7 @@ async function getOrderItems(orderIds: string[]): Promise<Map<string, StoreOrder
 export async function getActiveProducts(): Promise<StoreProduct[]> {
   const result = await getStoreDb().query<ProductRow>(
     `SELECT id, slug, title, category, description, price_pesewas,
-            stock_quantity, image_url, badge, is_active
+            stock_quantity, image_url, badge, product_type, download_path, is_active
      FROM store_products
      WHERE is_active = TRUE
      ORDER BY category, title`,
@@ -142,7 +146,7 @@ export async function getCustomerOrders(userId: string): Promise<StoreOrder[]> {
 export async function getAllStoreProducts(): Promise<StoreProduct[]> {
   const result = await getStoreDb().query<ProductRow>(
     `SELECT id, slug, title, category, description, price_pesewas,
-            stock_quantity, image_url, badge, is_active
+            stock_quantity, image_url, badge, product_type, download_path, is_active
      FROM store_products
      ORDER BY created_at DESC`,
   );
@@ -174,11 +178,19 @@ export async function getStoreUsers(): Promise<StoreUser[]> {
     id: string;
     name: string;
     email: string;
+    phone: string | null;
+    address_line_1: string | null;
+    address_line_2: string | null;
+    city: string | null;
+    region: string | null;
+    delivery_note: string | null;
     role: StoreRole;
     is_active: boolean;
+    is_primary_admin: boolean;
     created_at: Date;
   }>(
-    `SELECT id, name, email, role, is_active, created_at
+    `SELECT id, name, email, phone, address_line_1, address_line_2,
+            city, region, delivery_note, role, is_active, is_primary_admin, created_at
      FROM store_users
      ORDER BY created_at DESC
      LIMIT 500`,
@@ -187,8 +199,15 @@ export async function getStoreUsers(): Promise<StoreUser[]> {
     id: row.id,
     name: row.name,
     email: row.email,
+    phone: row.phone,
+    addressLine1: row.address_line_1,
+    addressLine2: row.address_line_2,
+    city: row.city,
+    region: row.region,
+    deliveryNote: row.delivery_note,
     role: row.role,
     isActive: row.is_active,
+    isPrimaryAdmin: row.is_primary_admin,
     createdAt: row.created_at.toISOString(),
   }));
 }

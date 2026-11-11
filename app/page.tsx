@@ -137,7 +137,7 @@ export default function Home() {
               </li>
               <li className="flex items-start gap-2.5">
                 <span className="mt-2 h-2.5 w-2.5 shrink-0 rounded-full bg-purple-700"></span>
-                <span><strong>Our calling:</strong> Upholding and sharing the teachings of Jesus Christ.</span>
+                <span><strong>Our calling:</strong> Upholding and sharing the teachings of Jesus Christ and to replicating the things he did in impacting the world by divine mandate.</span>
               </li>
             </ul>
           </FadeIn>

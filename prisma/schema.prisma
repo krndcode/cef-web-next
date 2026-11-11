@@ -15,15 +15,23 @@ model StoreUser {
   id             String         @id @db.Uuid
   name           String
   email          String         @unique
+  phone          String?
+  addressLine1   String?        @map("address_line_1")
+  addressLine2   String?        @map("address_line_2")
+  city           String?
+  region         String?
+  deliveryNote   String?        @map("delivery_note")
   passwordHash   String?        @map("password_hash")
   role           String         @default("customer")
   isActive       Boolean        @default(true) @map("is_active")
+  isPrimaryAdmin Boolean        @default(false) @map("is_primary_admin")
   neonAuthUserId String?        @map("neon_auth_user_id")
   createdAt      DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt      DateTime       @default(now()) @map("updated_at") @db.Timestamptz(6)
 
   sessions       StoreSession[]
   orders         StoreOrder[]
+  resourceAccess StoreResourceAccess[]
 
   @@map("store_users")
 }
@@ -56,14 +64,46 @@ model StoreProduct {
   stockQuantity  Int             @default(0) @map("stock_quantity")
   imageUrl       String?         @map("image_url")
   badge          String?
+  productType    String         @default("book") @map("product_type")
+  downloadPath   String?        @map("download_path")
   isActive       Boolean         @default(true) @map("is_active")
   createdAt      DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt      DateTime        @default(now()) @map("updated_at") @db.Timestamptz(6)
 
   orderItems     StoreOrderItem[]
+  resourceAccess StoreResourceAccess[]
 
   @@index([isActive, createdAt(sort: Desc)], map: "store_products_active_idx")
   @@map("store_products")
+}
+
+model StoreResourceAccess {
+  userId    String       @map("user_id") @db.Uuid
+  productId String       @map("product_id") @db.Uuid
+  grantedAt DateTime     @default(now()) @map("granted_at") @db.Timestamptz(6)
+  user      StoreUser    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  product   StoreProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@id([userId, productId])
+  @@map("store_resource_access")
+}
+
+model SupportMessage {
+  id        String    @id @db.Uuid
+  name      String
+  email     String
+  topic     String
+  message   String
+  status    String    @default("new")
+  isRead    Boolean   @default(false) @map("is_read")
+  reply     String?
+  repliedAt DateTime? @map("replied_at") @db.Timestamptz(6)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  @@index([status, createdAt(sort: Desc)], map: "support_messages_status_created_idx")
+  @@index([isRead, createdAt(sort: Desc)], map: "support_messages_read_created_idx")
+  @@map("support_messages")
 }
 
 // ==========================================

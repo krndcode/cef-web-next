@@ -45,10 +45,20 @@ export async function POST(request: Request) {
     }
 
     const product = parsed.data;
+    if (!["V.O.C Books", "Study Parchments", "Other Products"].includes(product.category)) {
+      return NextResponse.json({ error: "Choose an available store category." }, { status: 400 });
+    }
     const price = parseGhsToPesewas(product.priceGhs);
-    if (price === null || !validImagePath(product.imageUrl)) {
+    if (
+      price === null ||
+      !validImagePath(product.imageUrl) ||
+      (product.productType === "free_resource" &&
+        (!product.downloadPath.startsWith("/resources/") ||
+          product.downloadPath.startsWith("//") ||
+          product.downloadPath.split("/").includes("..")))
+    ) {
       return NextResponse.json(
-        { error: "Enter a valid price and a local image path beginning with /." },
+        { error: "Use a valid price, local image path, and PDF file path in /resources/." },
         { status: 400 },
       );
     }
@@ -60,18 +70,20 @@ export async function POST(request: Request) {
     await getStoreDb().query(
       `INSERT INTO store_products (
          id, slug, title, category, description, price_pesewas,
-         stock_quantity, image_url, badge, is_active
-       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+         stock_quantity, image_url, badge, product_type, download_path, is_active
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
       [
         randomUUID(),
         slug,
         product.title,
         product.category,
         product.description,
-        price,
-        product.stockQuantity,
+        product.productType === "free_resource" ? 0 : price,
+        product.productType === "free_resource" ? 0 : product.stockQuantity,
         product.imageUrl || null,
         product.badge || null,
+        product.productType,
+        product.productType === "free_resource" ? product.downloadPath : null,
         product.isActive,
       ],
     );

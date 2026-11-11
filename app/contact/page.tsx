@@ -1,6 +1,7 @@
 "use client";
 
 import type { FormEvent } from "react";
+import { useState } from "react";
 import Footer from "@/components/Footer";
 import FadeIn from "@/components/FadeIn";
 import { Mail, MapPin, MessageCircle, Phone, Send } from "lucide-react";
@@ -9,26 +10,41 @@ const contactPhone = "+233246474984";
 const contactEmail = "info@christtheentiretyfoundation.org";
 
 export default function ContactPage() {
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const formData = new FormData(event.currentTarget);
-    const name = String(formData.get("name") ?? "").trim();
-    const email = String(formData.get("email") ?? "").trim();
-    const topic = String(formData.get("topic") ?? "").trim();
-    const message = String(formData.get("message") ?? "").trim();
-    const whatsappMessage = [
-      "Hello Christ The Entirety Foundation,",
-      "",
-      `My name is ${name}.`,
-      email ? `My email is ${email}.` : "",
-      `I am contacting you about: ${topic}.`,
-      "",
-      message,
-    ]
-      .filter(Boolean)
-      .join("\n");
+  const [notice, setNotice] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
 
-    window.location.href = `https://wa.me/${contactPhone.replace("+", "")}?text=${encodeURIComponent(whatsappMessage)}`;
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const formData = new FormData(event.currentTarget);
+    setError("");
+    setNotice("");
+    setBusy(true);
+    try {
+      const response = await fetch("/api/contact/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: String(formData.get("name") ?? ""),
+          email: String(formData.get("email") ?? ""),
+          topic: String(formData.get("topic") ?? ""),
+          message: String(formData.get("message") ?? ""),
+        }),
+      });
+      const result: { error?: string } = await response.json();
+      if (!response.ok) {
+        setError(result.error ?? "Could not send your message.");
+        return;
+      }
+      setNotice("Thank you. Your message has been sent to the CEF support team.");
+      form.reset();
+    } catch (requestError) {
+      console.error("Contact message submission failed.", requestError);
+      setError("Could not reach the contact service. Please try again.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
@@ -140,12 +156,13 @@ export default function ContactPage() {
               Send us a message
             </h2>
             <p className="text-sm leading-relaxed text-gray-600">
-              Complete the form and we&apos;ll open a WhatsApp message for you
-              to review and send. Your details aren&apos;t submitted to or
-              stored by this website.
+              Send your message directly to our support inbox. Our team can
+              review it and reply to your email.
             </p>
           </div>
 
+          {notice && <p role="status" className="mb-5 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">{notice}</p>}
+          {error && <p role="alert" className="mb-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{error}</p>}
           <form onSubmit={handleSubmit} className="space-y-5">
             <div className="grid gap-5 sm:grid-cols-2">
               <label className="space-y-1.5 text-sm font-semibold text-gray-700">
@@ -160,11 +177,12 @@ export default function ContactPage() {
                 />
               </label>
               <label className="space-y-1.5 text-sm font-semibold text-gray-700">
-                <span>Email address (optional)</span>
+                <span>Email address</span>
                 <input
                   name="email"
                   type="email"
                   autoComplete="email"
+                  required
                   className="w-full rounded-xl border border-gray-300 bg-gray-50 px-4 py-3 font-normal outline-none transition focus:border-cefPurple focus:ring-2 focus:ring-cefPurple/20"
                   placeholder="you@example.com"
                 />
@@ -201,9 +219,10 @@ export default function ContactPage() {
 
             <button
               type="submit"
-              className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-cefPurple px-6 py-3.5 font-bold text-white shadow transition hover:bg-purple-800 sm:w-auto"
+              disabled={busy}
+              className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-cefPurple px-6 py-3.5 font-bold text-white shadow transition hover:bg-purple-800 disabled:opacity-60 sm:w-auto"
             >
-              Continue to WhatsApp <Send className="h-4 w-4" />
+              {busy ? "Sending..." : "Send message"} <Send className="h-4 w-4" />
             </button>
           </form>
         </FadeIn>

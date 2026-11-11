@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import { getStoreUser, isSameOriginRequest } from "@/lib/store-auth";
 import { getStoreDb } from "@/lib/store-db";
+import { sendStoreOrderEmail } from "@/lib/store-email";
 import { orderSchema } from "@/lib/store-validation";
 
 export const runtime = "nodejs";
@@ -11,6 +12,7 @@ type ProductRow = {
   title: string;
   price_pesewas: number;
   stock_quantity: number;
+  product_type: "book" | "free_resource";
 };
 
 export async function POST(request: Request) {
@@ -54,9 +56,10 @@ export async function POST(request: Request) {
       await client.query("BEGIN");
       const productIds = [...mergedItems.keys()];
       const products = await client.query<ProductRow>(
-        `SELECT id, title, price_pesewas, stock_quantity
+        `        SELECT id, title, price_pesewas, stock_quantity, product_type
          FROM store_products
-         WHERE is_active = TRUE AND id = ANY($1::uuid[])
+        WHERE is_active = TRUE AND product_type = 'book'
+          AND id = ANY($1::uuid[])
          FOR UPDATE`,
         [productIds],
       );
@@ -138,8 +141,31 @@ export async function POST(request: Request) {
       }
 
       await client.query("COMMIT");
+      let confirmationEmailSent = true;
+      try {
+        await sendStoreOrderEmail({
+          kind: "order_received",
+          to: user.email,
+          customerName: user.name,
+          orderId,
+          orderNumber,
+          items: items.map(({ product, quantity }) => ({
+            title: product.title,
+            quantity,
+            unitPricePesewas: product.price_pesewas,
+          })),
+          subtotalPesewas: subtotal,
+        });
+      } catch (emailError) {
+        confirmationEmailSent = false;
+        console.error("Store order was placed, but its confirmation email failed.", emailError);
+      }
+
       return NextResponse.json(
-        { order: { id: orderId, orderNumber, status: "pending_delivery_quote" } },
+        {
+          order: { id: orderId, orderNumber, status: "pending_delivery_quote" },
+          confirmationEmailSent,
+        },
         { status: 201 },
       );
     } catch (error) {

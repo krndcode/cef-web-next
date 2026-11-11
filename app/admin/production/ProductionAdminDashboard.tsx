@@ -1,20 +1,26 @@
 "use client";
 
+import Image from "next/image";
 import { useState } from "react";
 import type { FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import {
-  Check,
   CirclePlay,
   Clapperboard,
   Eye,
   EyeOff,
+  ExternalLink,
+  Pencil,
   Plus,
-  Save,
   Shield,
   Star,
   Trash2,
 } from "lucide-react";
+import {
+  CategoryManager,
+  CollapsibleCategorySection,
+  ItemRow,
+} from "@/app/admin/shared/AdminListComponents";
 import type {
   ProductionCategory,
   ProductionVideo,
@@ -25,6 +31,7 @@ type DashboardProps = {
   admin: StoreUser;
   categories: ProductionCategory[];
   videos: ProductionVideo[];
+  draftsOnly?: boolean;
   embedded?: boolean;
 };
 
@@ -83,7 +90,7 @@ function VideoFields({
         <select
           name="categoryId"
           required
-          defaultValue={video?.categoryId ?? categories[0]?.id}
+          defaultValue={video?.categoryId ?? categories[0]?.id ?? ""}
           className={fieldClassName}
         >
           {categories.map((category) => (
@@ -132,17 +139,56 @@ export default function ProductionAdminDashboard({
   admin,
   categories,
   videos,
+  draftsOnly = false,
   embedded = false,
 }: DashboardProps) {
   const router = useRouter();
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState("");
+  const [editingVideoId, setEditingVideoId] = useState<string | null>(null);
+  const visibleVideos = draftsOnly
+    ? videos.filter((video) => video.publishedAt === null)
+    : videos;
+
+  async function submitCategory(
+    category: ProductionCategory | undefined,
+    data: FormData,
+  ): Promise<boolean> {
+    setError("");
+    setNotice("");
+    setBusy("category");
+    try {
+      const result = await sendRequest(
+        category
+          ? `/api/admin/production/categories/${category.id}`
+          : "/api/admin/production/categories",
+        category ? "PATCH" : "POST",
+        {
+          name: String(data.get("name") ?? ""),
+          description: String(data.get("description") ?? ""),
+        },
+      );
+      if (!result.ok) {
+        setError(result.error ?? "Could not save this category.");
+        return false;
+      }
+      setNotice(category ? "Category updated." : "Category added.");
+      router.refresh();
+      return true;
+    } catch (requestError) {
+      console.error("Production category save request failed.", requestError);
+      setError("Could not reach the media library. Please try again.");
+      return false;
+    } finally {
+      setBusy("");
+    }
+  }
 
   async function submitVideo(
     event: FormEvent<HTMLFormElement>,
     video?: ProductionVideo,
-  ) {
+  ): Promise<boolean> {
     event.preventDefault();
     const form = event.currentTarget;
     const data = new FormData(form);
@@ -171,14 +217,20 @@ export default function ProductionAdminDashboard({
       );
       if (!result.ok) {
         setError(result.error ?? "Could not save this broadcast.");
-        return;
+        return false;
       }
       setNotice(video ? "Broadcast details saved." : "Broadcast published.");
-      if (!video) form.reset();
+      if (!video) {
+        form.reset();
+      } else {
+        setEditingVideoId(null);
+      }
       router.refresh();
+      return true;
     } catch (requestError) {
       console.error("Production video save request failed.", requestError);
       setError("Could not reach the media library. Please try again.");
+      return false;
     } finally {
       setBusy("");
     }
@@ -242,6 +294,13 @@ export default function ProductionAdminDashboard({
     }
   }
 
+  const categoryCounts = new Map(
+    categories.map((category) => [
+      category.id,
+      videos.filter((video) => video.categoryId === category.id).length,
+    ]),
+  );
+
   return (
     <div className={embedded ? "text-gray-800" : "min-h-screen bg-gray-50 text-gray-800"}>
       {!embedded && (
@@ -263,7 +322,7 @@ export default function ProductionAdminDashboard({
         </header>
       )}
 
-      <div className={embedded ? "space-y-10" : "mx-auto max-w-7xl space-y-10 px-4 py-8 sm:px-6 lg:px-8"}>
+      <div className={embedded ? "space-y-8" : "mx-auto max-w-7xl space-y-8 px-4 py-8 sm:px-6 lg:px-8"}>
         {error && (
           <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
             {error}
@@ -275,9 +334,23 @@ export default function ProductionAdminDashboard({
           </p>
         )}
 
+        <CategoryManager
+          categories={categories}
+          itemCounts={categoryCounts}
+          busy={busy === "category"}
+          onAdd={(data) => submitCategory(undefined, data)}
+          onSave={(id, data) => {
+            const category = categories.find((item) => item.id === id);
+            return category
+              ? submitCategory(category, data)
+              : Promise.resolve(false);
+          }}
+        />
+
         <section
+          id="add-broadcast"
           aria-labelledby="add-video-heading"
-          className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm sm:p-7"
+          className="scroll-mt-6 rounded-2xl border border-gray-200 bg-white p-5 shadow-sm sm:p-7"
         >
           <div className="mb-6 flex items-center gap-3">
             <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-purple-100 text-cefPurple">
@@ -292,31 +365,33 @@ export default function ProductionAdminDashboard({
               </p>
             </div>
           </div>
-          <form onSubmit={(event) => void submitVideo(event)} className="space-y-5">
-            <VideoFields categories={categories} />
-            <label className="inline-flex items-center gap-2 text-sm font-semibold text-gray-700">
-              <input
-                type="checkbox"
-                name="isFeatured"
-                className="h-4 w-4 accent-cefPurple"
-              />
-              Set as featured broadcast
-            </label>
-            <div>
-              <button
-                type="submit"
-                disabled={busy !== ""}
-                className="inline-flex items-center gap-2 rounded-xl bg-cefPurple px-5 py-3 text-sm font-bold text-white transition hover:bg-purple-800 disabled:opacity-60"
-              >
-                <CirclePlay className="h-4 w-4" aria-hidden="true" />
-                {busy === "new" ? "Publishing..." : "Publish broadcast"}
-              </button>
-            </div>
-          </form>
+          {categories.length === 0 ? (
+            <p className="rounded-xl bg-amber-50 p-4 text-sm text-amber-900">
+              Add a category before creating a broadcast.
+            </p>
+          ) : (
+            <form onSubmit={(event) => void submitVideo(event)} className="space-y-5">
+              <VideoFields categories={categories} />
+              <label className="inline-flex items-center gap-2 text-sm font-semibold text-gray-700">
+                <input type="checkbox" name="isFeatured" className="h-4 w-4 accent-cefPurple" />
+                Set as featured broadcast
+              </label>
+              <div>
+                <button
+                  type="submit"
+                  disabled={busy !== ""}
+                  className="inline-flex items-center gap-2 rounded-xl bg-cefPurple px-5 py-3 text-sm font-bold text-white transition hover:bg-purple-800 disabled:opacity-60"
+                >
+                  <CirclePlay className="h-4 w-4" aria-hidden="true" />
+                  {busy === "new" ? "Publishing..." : "Publish broadcast"}
+                </button>
+              </div>
+            </form>
+          )}
         </section>
 
-        <section aria-labelledby="manage-videos-heading">
-          <div className="mb-5 flex items-center gap-3">
+        <section aria-labelledby="manage-videos-heading" className="space-y-4">
+          <div className="flex items-center gap-3">
             <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-50 text-cefBlue">
               <Clapperboard className="h-5 w-5" aria-hidden="true" />
             </span>
@@ -325,117 +400,140 @@ export default function ProductionAdminDashboard({
                 Manage broadcasts
               </h2>
               <p className="text-xs text-gray-500">
-                {videos.length} video{videos.length === 1 ? "" : "s"} · Feature, publish, edit, or remove content.
+                {visibleVideos.length} {draftsOnly ? "draft broadcast" : "video"}{visibleVideos.length === 1 ? "" : "s"} · Feature, publish, edit, or remove content.
               </p>
             </div>
           </div>
 
-          {videos.length === 0 ? (
+          {draftsOnly && visibleVideos.length === 0 ? (
+            <p className="rounded-2xl border border-dashed border-gray-300 bg-white p-7 text-sm text-gray-700">
+              No draft broadcasts.
+            </p>
+          ) : categories.length === 0 ? (
             <p className="rounded-2xl border border-dashed border-gray-300 bg-white p-7 text-sm text-gray-500">
-              No videos have been added yet.
+              Add a category to organize broadcasts.
             </p>
           ) : (
-            <div className="space-y-5">
-              {videos.map((video) => {
-                const isPublished = video.publishedAt !== null;
-                return (
-                  <article
-                    key={video.id}
-                    className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm sm:p-6"
-                  >
-                    <div className="mb-5 flex flex-wrap items-start justify-between gap-4 border-b border-gray-100 pb-4">
-                      <div>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="text-xs font-bold uppercase tracking-wider text-cefBlue">
-                            {video.categoryName}
-                          </span>
-                          {video.isFeatured && (
-                            <span className="inline-flex items-center gap-1 rounded-full bg-purple-50 px-2 py-1 text-[10px] font-bold uppercase text-cefPurple">
-                              <Star className="h-3 w-3 fill-current" aria-hidden="true" />
-                              Featured
+            categories.map((category) => {
+              const categoryVideos = visibleVideos.filter(
+                (video) => video.categoryId === category.id,
+              );
+              if (draftsOnly && categoryVideos.length === 0) return null;
+              return (
+                <CollapsibleCategorySection
+                  key={category.id}
+                  name={category.name}
+                  description={category.description}
+                  count={categoryVideos.length}
+                  emptyText="No broadcasts in this category yet."
+                >
+                  {categoryVideos.map((video) => {
+                    const isPublished = video.publishedAt !== null;
+                    const editing = editingVideoId === video.id;
+                    const editingBusy = busy === video.id;
+                    return (
+                      <ItemRow
+                        key={video.id}
+                        formId={`broadcast-edit-${video.id}`}
+                        title={video.title}
+                        subtitle={`${video.views.toLocaleString()} views${video.duration ? ` · ${video.duration}` : ""}`}
+                        thumbnail={
+                          <Image
+                            src={`https://img.youtube.com/vi/${video.youtubeId}/mqdefault.jpg`}
+                            alt=""
+                            fill
+                            sizes="80px"
+                            unoptimized
+                            className="object-cover"
+                          />
+                        }
+                        badges={
+                          <>
+                            {video.isFeatured && (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-purple-50 px-2 py-1 text-[10px] font-bold uppercase text-cefPurple">
+                                <Star className="h-3 w-3 fill-current" aria-hidden="true" />
+                                Featured
+                              </span>
+                            )}
+                            <span className={`rounded-full px-2 py-1 text-[10px] font-bold uppercase ${
+                              isPublished
+                                ? "bg-emerald-50 text-emerald-700"
+                                : "bg-gray-100 text-gray-600"
+                            }`}>
+                              {isPublished ? "Published" : "Draft"}
                             </span>
-                          )}
-                          <span className={`rounded-full px-2 py-1 text-[10px] font-bold uppercase ${
-                            isPublished
-                              ? "bg-blue-50 text-blue-800"
-                              : "bg-gray-100 text-gray-600"
-                          }`}>
-                            {isPublished ? "Published" : "Unpublished"}
-                          </span>
-                        </div>
-                        <h3 className="mt-2 font-semibold text-gray-950">{video.title}</h3>
-                        <p className="mt-1 text-xs text-gray-500">
-                          {video.views.toLocaleString()} views
-                          {video.duration ? ` · ${video.duration}` : ""}
-                        </p>
-                      </div>
-                      <a
-                        href={video.youtubeUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-xs font-semibold text-cefPurple underline-offset-2 hover:underline"
+                          </>
+                        }
+                        editing={editing}
+                        busy={editingBusy}
+                        onCancel={() => setEditingVideoId(null)}
+                        actions={
+                          <>
+                            <button
+                              type="button"
+                              disabled={busy !== ""}
+                              onClick={() => setEditingVideoId(video.id)}
+                              className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-2 text-xs font-bold text-gray-700 hover:border-cefPurple hover:text-cefPurple disabled:opacity-50"
+                            >
+                              <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
+                              Edit
+                            </button>
+                            <button
+                              type="button"
+                              disabled={busy !== ""}
+                              onClick={() => void updateVideo(video, { isFeatured: !video.isFeatured })}
+                              className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-2 text-xs font-bold text-gray-700 disabled:opacity-50"
+                            >
+                              <Star className="h-3.5 w-3.5" aria-hidden="true" />
+                              {video.isFeatured ? "Remove featured" : "Feature"}
+                            </button>
+                            <button
+                              type="button"
+                              disabled={busy !== ""}
+                              onClick={() => void updateVideo(video, { isPublished: !isPublished })}
+                              className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-2 text-xs font-bold text-gray-700 disabled:opacity-50"
+                            >
+                              {isPublished ? (
+                                <EyeOff className="h-3.5 w-3.5" aria-hidden="true" />
+                              ) : (
+                                <Eye className="h-3.5 w-3.5" aria-hidden="true" />
+                              )}
+                              {isPublished ? "Unpublish" : "Publish"}
+                            </button>
+                            <button
+                              type="button"
+                              disabled={busy !== ""}
+                              onClick={() => void deleteVideo(video)}
+                              className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 px-3 py-2 text-xs font-bold text-red-700 disabled:opacity-50"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+                              Delete
+                            </button>
+                            <a
+                              href={video.youtubeUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex items-center gap-1.5 rounded-lg px-2 py-2 text-xs font-semibold text-cefPurple hover:underline"
+                            >
+                              <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+                              Open on YouTube
+                            </a>
+                          </>
+                        }
                       >
-                        Open on YouTube
-                      </a>
-                    </div>
-
-                    <form
-                      onSubmit={(event) => void submitVideo(event, video)}
-                      className="space-y-4"
-                    >
-                      <VideoFields video={video} categories={categories} />
-                      <div className="flex flex-wrap gap-2 border-t border-gray-100 pt-4">
-                        <button
-                          type="submit"
-                          disabled={busy !== ""}
-                          className="inline-flex items-center gap-2 rounded-xl bg-cefPurple px-4 py-2.5 text-xs font-bold text-white transition hover:bg-purple-800 disabled:opacity-50"
+                        <form
+                          id={`broadcast-edit-${video.id}`}
+                          onSubmit={(event) => void submitVideo(event, video)}
+                          className="space-y-4"
                         >
-                          <Save className="h-4 w-4" aria-hidden="true" />
-                          Save changes
-                        </button>
-                        <button
-                          type="button"
-                          disabled={busy !== ""}
-                          onClick={() => void updateVideo(video, { isFeatured: !video.isFeatured })}
-                          className="inline-flex items-center gap-2 rounded-xl border border-gray-200 px-4 py-2.5 text-xs font-bold text-gray-700 transition hover:bg-gray-50 disabled:opacity-50"
-                        >
-                          <Star className="h-4 w-4" aria-hidden="true" />
-                          {video.isFeatured ? "Remove featured" : "Set featured"}
-                        </button>
-                        <button
-                          type="button"
-                          disabled={busy !== ""}
-                          onClick={() => void updateVideo(video, { isPublished: !isPublished })}
-                          className="inline-flex items-center gap-2 rounded-xl border border-gray-200 px-4 py-2.5 text-xs font-bold text-gray-700 transition hover:bg-gray-50 disabled:opacity-50"
-                        >
-                          {isPublished ? (
-                            <EyeOff className="h-4 w-4" aria-hidden="true" />
-                          ) : (
-                            <Eye className="h-4 w-4" aria-hidden="true" />
-                          )}
-                          {isPublished ? "Unpublish" : "Publish"}
-                        </button>
-                        <button
-                          type="button"
-                          disabled={busy !== ""}
-                          onClick={() => void deleteVideo(video)}
-                          className="inline-flex items-center gap-2 rounded-xl border border-red-200 px-4 py-2.5 text-xs font-bold text-red-700 transition hover:bg-red-50 disabled:opacity-50"
-                        >
-                          <Trash2 className="h-4 w-4" aria-hidden="true" />
-                          Delete
-                        </button>
-                      </div>
-                    </form>
-                    {busy === video.id && (
-                      <p role="status" className="mt-3 inline-flex items-center gap-2 text-xs text-gray-500">
-                        <Check className="h-3.5 w-3.5 text-cefBlue" aria-hidden="true" />
-                        Saving...
-                      </p>
-                    )}
-                  </article>
-                );
-              })}
-            </div>
+                          <VideoFields video={video} categories={categories} />
+                        </form>
+                      </ItemRow>
+                    );
+                  })}
+                </CollapsibleCategorySection>
+              );
+            })
           )}
         </section>
       </div>

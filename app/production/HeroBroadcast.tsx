@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import { useEffect, useRef, useState } from "react";
 import {
   Check,
   Download,
@@ -13,6 +14,7 @@ import type { ProductionVideo } from "@/lib/production-queries";
 
 type HeroBroadcastProps = {
   video: ProductionVideo | null;
+  autoplay: boolean;
   nextUp: ProductionVideo[];
   playlistIds: string[];
   notice: string;
@@ -23,6 +25,7 @@ type HeroBroadcastProps = {
 
 export default function HeroBroadcast({
   video,
+  autoplay,
   nextUp,
   playlistIds,
   notice,
@@ -31,6 +34,20 @@ export default function HeroBroadcast({
   onTogglePlaylist,
 }: HeroBroadcastProps) {
   const inPlaylist = video ? playlistIds.includes(video.id) : false;
+  const playerAnchorRef = useRef<HTMLDivElement>(null);
+  const [floating, setFloating] = useState(false);
+
+  useEffect(() => {
+    const anchor = playerAnchorRef.current;
+    if (!anchor) return;
+
+    const observer = new IntersectionObserver(
+      ([entry]) => setFloating(!entry.isIntersecting),
+      { threshold: 0.1 },
+    );
+    observer.observe(anchor);
+    return () => observer.disconnect();
+  }, [video?.id]);
 
   return (
     <section className="relative overflow-hidden bg-gray-950 text-white">
@@ -51,16 +68,29 @@ export default function HeroBroadcast({
         {video ? (
           <div className="grid gap-8 lg:grid-cols-[minmax(0,1.55fr)_minmax(280px,0.8fr)] lg:gap-10">
             <div className="min-w-0">
-              <div className="relative aspect-video overflow-hidden rounded-2xl border border-white/10 bg-black shadow-2xl shadow-black/30">
-                <iframe
-                  key={video.youtubeId}
-                  src={`https://www.youtube-nocookie.com/embed/${video.youtubeId}?autoplay=0&rel=0&modestbranding=1`}
-                  title={video.title}
-                  className="absolute inset-0 h-full w-full"
-                  allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                  referrerPolicy="strict-origin-when-cross-origin"
-                  allowFullScreen
+              <div className="relative aspect-video">
+                <div
+                  ref={playerAnchorRef}
+                  aria-hidden="true"
+                  className="pointer-events-none absolute inset-0"
                 />
+                <div
+                  className={`overflow-hidden rounded-2xl border border-white/10 bg-black ${
+                    floating
+                      ? "fixed bottom-4 right-4 z-50 aspect-video w-[min(88vw,400px)] shadow-2xl shadow-black/70"
+                      : "absolute inset-0 shadow-2xl shadow-black/30"
+                  }`}
+                >
+                  <iframe
+                    key={video.youtubeId}
+                    src={`https://www.youtube-nocookie.com/embed/${video.youtubeId}?autoplay=${autoplay ? 1 : 0}&rel=0&modestbranding=1`}
+                    title={video.title}
+                    className="absolute inset-0 h-full w-full"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                    referrerPolicy="strict-origin-when-cross-origin"
+                    allowFullScreen
+                  />
+                </div>
               </div>
 
               <div className="mt-7">

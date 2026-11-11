@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getStoreUser, isSameOriginRequest } from "@/lib/store-auth";
 import { getStoreDb } from "@/lib/store-db";
+import { sendStoreOrderEmail } from "@/lib/store-email";
 import {
   inspectPaystackTransaction,
   markStoreOrderPaid,
@@ -89,16 +90,22 @@ export async function PATCH(request: Request, context: RouteContext) {
       await client.query("BEGIN");
       const orderResult = await client.query<{
         id: string;
+        order_number: string;
         status: string;
         payment_status: string;
         subtotal_pesewas: number;
         paystack_reference: string | null;
+        recipient_name: string;
+        customer_name: string;
+        email: string;
       }>(
-        `SELECT id, status, payment_status, subtotal_pesewas,
-                paystack_reference
-         FROM store_orders
-         WHERE id = $1
-         FOR UPDATE`,
+        `SELECT o.id, o.order_number, o.status, o.payment_status,
+                o.subtotal_pesewas, o.paystack_reference, o.recipient_name,
+                u.name AS customer_name, u.email
+         FROM store_orders o
+         JOIN store_users u ON u.id = o.user_id
+         WHERE o.id = $1
+         FOR UPDATE OF o`,
         [id],
       );
       const order = orderResult.rows[0];
@@ -107,6 +114,12 @@ export async function PATCH(request: Request, context: RouteContext) {
         return NextResponse.json({ error: "Order not found." }, { status: 404 });
       }
 
+      let quoteItems: Array<{
+        title: string;
+        quantity: number;
+        unitPricePesewas: number;
+      }> = [];
+      let confirmedDeliveryFee: number | null = null;
       if (parsed.data.action === "quote") {
         const fee = parseGhsToPesewas(parsed.data.deliveryFeeGhs);
         if (
@@ -129,6 +142,23 @@ export async function PATCH(request: Request, context: RouteContext) {
            WHERE id = $1`,
           [id, fee],
         );
+        confirmedDeliveryFee = fee;
+        const itemsResult = await client.query<{
+          product_title: string;
+          quantity: number;
+          unit_price_pesewas: number;
+        }>(
+          `SELECT product_title, quantity, unit_price_pesewas
+           FROM store_order_items
+           WHERE order_id = $1
+           ORDER BY product_title`,
+          [id],
+        );
+        quoteItems = itemsResult.rows.map((item) => ({
+          title: item.product_title,
+          quantity: item.quantity,
+          unitPricePesewas: item.unit_price_pesewas,
+        }));
       } else if (parsed.data.status === "cancelled") {
         if (order.payment_status === "pending") {
           if (
@@ -214,6 +244,30 @@ export async function PATCH(request: Request, context: RouteContext) {
       }
 
       await client.query("COMMIT");
+      if (parsed.data.action === "quote" && confirmedDeliveryFee !== null) {
+        try {
+          await sendStoreOrderEmail({
+            kind: "delivery_fee_confirmed",
+            to: order.email,
+            customerName: order.customer_name,
+            orderId: order.id,
+            orderNumber: order.order_number,
+            items: quoteItems,
+            subtotalPesewas: order.subtotal_pesewas,
+            deliveryFeePesewas: confirmedDeliveryFee,
+          });
+          return NextResponse.json({ updated: true, notificationSent: true });
+        } catch (emailError) {
+          console.error("Delivery quote was saved, but its customer email failed.", emailError);
+          return NextResponse.json({
+            updated: true,
+            notificationSent: false,
+            notificationError:
+              "Delivery fee was saved, but the customer email could not be sent. Check the email configuration and contact the customer.",
+          });
+        }
+      }
+
       return NextResponse.json({ updated: true });
     } catch (error) {
       await client.query("ROLLBACK");

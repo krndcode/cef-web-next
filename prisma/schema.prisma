@@ -1,0 +1,182 @@
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ==========================================
+// STORE USERS & AUTHENTICATION
+// ==========================================
+
+model StoreUser {
+  id             String         @id @db.Uuid
+  name           String
+  email          String         @unique
+  passwordHash   String?        @map("password_hash")
+  role           String         @default("customer")
+  isActive       Boolean        @default(true) @map("is_active")
+  neonAuthUserId String?        @map("neon_auth_user_id")
+  createdAt      DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime       @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  sessions       StoreSession[]
+  orders         StoreOrder[]
+
+  @@map("store_users")
+}
+
+model StoreSession {
+  id        String    @id @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  tokenHash String    @unique @map("token_hash") @db.Char(64)
+  expiresAt DateTime  @map("expires_at") @db.Timestamptz(6)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user      StoreUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId], map: "store_sessions_user_id_idx")
+  @@index([expiresAt], map: "store_sessions_expiry_idx")
+  @@map("store_sessions")
+}
+
+// ==========================================
+// STORE PRODUCTS
+// ==========================================
+
+model StoreProduct {
+  id             String          @id @db.Uuid
+  slug           String          @unique
+  title          String
+  category       String
+  description    String
+  pricePesewas   Int             @map("price_pesewas")
+  stockQuantity  Int             @default(0) @map("stock_quantity")
+  imageUrl       String?         @map("image_url")
+  badge          String?
+  isActive       Boolean         @default(true) @map("is_active")
+  createdAt      DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime        @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  orderItems     StoreOrderItem[]
+
+  @@index([isActive, createdAt(sort: Desc)], map: "store_products_active_idx")
+  @@map("store_products")
+}
+
+// ==========================================
+// STORE ORDERS & PAYMENTS
+// ==========================================
+
+model StoreOrder {
+  id                 String          @id @db.Uuid
+  orderNumber        String          @unique @map("order_number")
+  userId             String          @map("user_id") @db.Uuid
+  status             String          @default("pending_delivery_quote")
+  paymentStatus      String          @default("unpaid") @map("payment_status")
+  subtotalPesewas    Int             @map("subtotal_pesewas")
+  deliveryFeePesewas Int?            @map("delivery_fee_pesewas")
+  totalPesewas       Int?            @map("total_pesewas")
+  recipientName      String          @map("recipient_name")
+  phone              String
+  addressLine1       String          @map("address_line_1")
+  addressLine2       String?         @map("address_line_2")
+  city               String
+  region             String
+  deliveryNote       String?         @map("delivery_note")
+  paystackReference  String?         @unique @map("paystack_reference")
+  paidAt             DateTime?       @map("paid_at") @db.Timestamptz(6)
+  createdAt          DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime        @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  user               StoreUser       @relation(fields: [userId], references: [id])
+  items              StoreOrderItem[]
+
+  @@index([userId, createdAt(sort: Desc)], map: "store_orders_user_created_idx")
+  @@index([status, createdAt(sort: Desc)], map: "store_orders_status_created_idx")
+  @@map("store_orders")
+}
+
+model StoreOrderItem {
+  id               String        @id @db.Uuid
+  orderId          String        @map("order_id") @db.Uuid
+  productId        String?       @map("product_id") @db.Uuid
+  productTitle     String        @map("product_title")
+  quantity         Int
+  unitPricePesewas Int           @map("unit_price_pesewas")
+
+  order            StoreOrder    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product          StoreProduct? @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  @@index([orderId], map: "store_order_items_order_id_idx")
+  @@map("store_order_items")
+}
+
+// ==========================================
+// STORE AUTHENTICATION LIMITS
+// ==========================================
+
+model StoreAuthLimit {
+  email           String   @id
+  attempts        Int      @default(0)
+  windowStartedAt DateTime @default(now()) @map("window_started_at") @db.Timestamptz(6)
+
+  @@map("store_auth_limits")
+}
+
+// ==========================================
+// STORE PAYMENT EVENTS
+// ==========================================
+
+model StorePaymentEvent {
+  id         String   @id @db.Uuid
+  reference  String
+  eventType  String   @map("event_type")
+  payload    Json     @db.JsonB
+  receivedAt DateTime @default(now()) @map("received_at") @db.Timestamptz(6)
+
+  @@unique([reference, eventType])
+  @@index([reference], map: "store_payment_events_reference_idx")
+  @@map("store_payment_events")
+}
+
+// ==========================================
+// CEF PRODUCTIONS
+// ==========================================
+
+model Category {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String
+  slug        String   @unique
+  description String
+  order       Int      @map("order")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  videos      Video[]
+
+  @@map("production_categories")
+}
+
+model Video {
+  id            String    @id @default(uuid()) @db.Uuid
+  title         String
+  description   String
+  youtubeUrl    String    @map("youtube_url")
+  youtubeId     String    @map("youtube_id") @db.Char(11)
+  thumbnailUrl  String    @map("thumbnail_url")
+  duration      String?
+  isFeatured    Boolean   @default(false) @map("is_featured")
+  categoryId    String    @map("category_id") @db.Uuid
+  category      Category  @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  views         Int       @default(0)
+  publishedAt   DateTime? @map("published_at") @db.Timestamptz(6)
+  studyNotesUrl String?   @map("study_notes_url")
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([categoryId, publishedAt(sort: Desc)])
+  @@index([publishedAt(sort: Desc)])
+  @@map("production_videos")
+}

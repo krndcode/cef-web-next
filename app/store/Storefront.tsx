@@ -10,26 +10,22 @@ import {
   ArrowRight,
   BookOpen,
   CheckCircle2,
-  CircleUserRound,
   Download,
-  LockKeyhole,
-  LogOut,
   Minus,
   PackageCheck,
   Plus,
   ShoppingBag,
   ShoppingCart,
-  Mail,
-  ShieldCheck,
 } from "lucide-react";
 import type { StoreOrder, StoreProduct, StoreUser } from "@/lib/store-types";
 import { formatGhs } from "@/lib/store-types";
-import { neonAuthClient } from "@/lib/neon-auth-client";
+import { signInHref } from "@/lib/navigation";
 
 type StorefrontProps = {
   user: StoreUser | null;
   products: StoreProduct[];
   orders: StoreOrder[];
+  downloads: StoreProduct[];
   focusOrderId?: string;
 };
 
@@ -47,20 +43,16 @@ export default function Storefront({
   user,
   products,
   orders,
+  downloads,
   focusOrderId,
 }: StorefrontProps) {
   const router = useRouter();
 
-  const [mode, setMode] = useState<"login" | "register">("login");
   const [cart, setCart] = useState<Record<string, number>>({});
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-
-  // Email verification state
-  const [verificationStep, setVerificationStep] = useState(false);
-  const [verificationEmail, setVerificationEmail] = useState("");
-  const [verificationCode, setVerificationCode] = useState("");
+  const signInUrl = signInHref("/store");
 
   const cartItems = useMemo(
     () =>
@@ -79,199 +71,70 @@ export default function Storefront({
   ];
   const [downloadingProductId, setDownloadingProductId] = useState("");
 
-  async function checkoutResource(product: StoreProduct) {
+  /**
+   * Fetches the private PDF and saves it in place. Free resources pass
+   * `checkout: true` so access is recorded before the file is requested.
+   * Keeping the user on the page means a missing or delayed upload shows an
+   * inline error instead of a raw JSON page.
+   */
+  async function downloadResource(
+    product: StoreProduct,
+    options: { checkout?: boolean } = {},
+  ) {
     setDownloadingProductId(product.id);
     setError("");
     setNotice("");
+
     try {
-      const response = await fetch(
-        `/api/store/resources/${product.id}/checkout`,
-        { method: "POST" },
+      if (options.checkout) {
+        const checkoutResponse = await fetch(
+          `/api/store/resources/${product.id}/checkout`,
+          { method: "POST" },
+        );
+        const checkoutResult: ApiResponse & { downloadUrl?: string } =
+          await checkoutResponse.json().catch(() => ({}));
+        if (!checkoutResponse.ok || !checkoutResult.downloadUrl) {
+          setError(
+            checkoutResult.error ?? "Could not prepare this free download.",
+          );
+          return;
+        }
+      }
+
+      const fileResponse = await fetch(
+        `/api/store/resources/${product.id}/download`,
       );
-      const result: ApiResponse & { downloadUrl?: string } =
-        await response.json();
-      if (!response.ok || !result.downloadUrl) {
-        setError(result.error ?? "Could not prepare this free download.");
+      if (!fileResponse.ok) {
+        const failure: { error?: string } = await fileResponse
+          .json()
+          .catch(() => ({}));
+        setError(
+          failure.error ??
+            "The PDF file is not available yet. Please check back soon.",
+        );
         return;
       }
-      setNotice(`${product.title} is ready to download.`);
-      window.location.assign(result.downloadUrl);
+
+      const blob = await fileResponse.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = objectUrl;
+      link.download = `${product.slug || "cef-resource"}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 15_000);
+
+      setNotice(`${product.title} is downloading.`);
+      if (options.checkout) {
+        // Refresh so the new download appears in "Your PDF downloads".
+        router.refresh();
+      }
     } catch (requestError) {
-      console.error("Free resource checkout failed.", requestError);
-      setError("Could not prepare this free download. Please try again.");
+      console.error("Free resource download failed.", requestError);
+      setError("Could not download this resource. Please try again.");
     } finally {
       setDownloadingProductId("");
-    }
-  }
-
-  async function sendVerificationCode(email: string) {
-    const normalizedEmail = email.trim().toLowerCase();
-
-    if (!normalizedEmail) {
-      setError("Please enter your email address.");
-      return false;
-    }
-
-    const result = await neonAuthClient.emailOtp.sendVerificationOtp({
-      email: normalizedEmail,
-      type: "email-verification",
-    });
-
-    if (result.error) {
-      setError(
-        result.error.message || "Could not send the verification code.",
-      );
-      return false;
-    }
-
-    setVerificationEmail(normalizedEmail);
-    setVerificationCode("");
-    setVerificationStep(true);
-    setError("");
-    setNotice("A verification code has been sent to your email.");
-
-    return true;
-  }
-
-  async function submitAuth(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setError("");
-    setNotice("");
-    setBusy(true);
-
-    const formData = new FormData(event.currentTarget);
-    const name = String(formData.get("name") ?? "");
-    const email = String(formData.get("email") ?? "");
-    const password = String(formData.get("password") ?? "");
-
-    try {
-      const result =
-        mode === "register"
-          ? await neonAuthClient.signUp.email({ name, email, password })
-          : await neonAuthClient.signIn.email({ email, password });
-
-      if (result.error) {
-        setError(result.error.message || "Could not authenticate.");
-        return;
-      }
-
-      if (
-        mode === "register" &&
-        result.data?.user &&
-        !result.data.user.emailVerified
-      ) {
-        await sendVerificationCode(email);
-        return;
-      }
-
-      const profileResponse = await fetch("/api/store/profile", {
-        method: "POST",
-      });
-
-      const profileResult: ApiResponse = await profileResponse.json();
-
-      if (!profileResponse.ok) {
-        setError(
-          profileResult.error ?? "Could not prepare your store account.",
-        );
-        return;
-      }
-
-      router.refresh();
-    } catch (requestError) {
-      console.error("Neon Auth request failed.", requestError);
-      setError(
-        "Could not complete your authentication request. Please try again.",
-      );
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function verifyEmail(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-
-    setError("");
-    setNotice("");
-    setBusy(true);
-
-    try {
-      const result = await neonAuthClient.emailOtp.verifyEmail({
-        email: verificationEmail,
-        otp: verificationCode.trim(),
-      });
-
-      if (result.error) {
-        setError(
-          result.error.message ||
-            "Invalid or expired verification code. Please try again.",
-        );
-        return;
-      }
-
-      setVerificationStep(false);
-      setVerificationCode("");
-      setMode("login");
-
-      setNotice(
-        "Your email has been verified successfully. Please sign in to access the bookstore.",
-      );
-    } catch (requestError) {
-      console.error("Email verification failed.", requestError);
-      setError(
-        "Could not verify your email. Please check your code and try again.",
-      );
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function resendVerificationCode() {
-    setError("");
-    setNotice("");
-    setBusy(true);
-
-    try {
-      const result = await neonAuthClient.emailOtp.sendVerificationOtp({
-        email: verificationEmail,
-        type: "email-verification",
-      });
-
-      if (result.error) {
-        setError(
-          result.error.message || "Could not resend the verification code.",
-        );
-        return;
-      }
-
-      setNotice("A new verification code has been sent to your email.");
-      setVerificationCode("");
-    } catch (requestError) {
-      console.error("Could not resend verification code.", requestError);
-      setError("Could not resend the code. Please try again.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function signOut() {
-    setError("");
-    setBusy(true);
-
-    try {
-      const result = await neonAuthClient.signOut();
-
-      if (result.error) {
-        setError(result.error.message || "Could not sign out.");
-        return;
-      }
-
-      router.refresh();
-    } catch (requestError) {
-      console.error("Neon Auth sign-out request failed.", requestError);
-      setError("Could not sign out. Please try again.");
-    } finally {
-      setBusy(false);
     }
   }
 
@@ -382,281 +245,7 @@ export default function Storefront({
     }
   }
 
-  // Authentication and email verification interface
-  if (!user) {
-    return (
-      <div className="min-h-[70vh] bg-gray-50 px-4 py-10 sm:px-6 sm:py-16">
-        <div className="mx-auto grid max-w-6xl overflow-hidden rounded-3xl border border-gray-200 bg-white shadow-xl shadow-purple-950/5 lg:grid-cols-2">
-          <section className="cef-hero-backdrop relative flex min-h-72 flex-col justify-between overflow-hidden p-7 text-white sm:p-10 lg:p-12">
-            <div className="relative z-10 space-y-5">
-              <span className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-3 py-1.5 text-[11px] font-bold uppercase tracking-widest">
-                <BookOpen className="h-3.5 w-3.5" aria-hidden="true" />
-                Voice of the Cross
-              </span>
-
-              <h1 className="max-w-lg font-serif text-3xl font-bold leading-tight sm:text-4xl">
-                Words to study.
-                <span className="block text-purple-300">
-                  Truth to live.
-                </span>
-              </h1>
-
-              <p className="max-w-md text-sm leading-7 text-purple-100/80">
-                Browse CEF books and study parchments after signing in.
-                Place your order, receive a confirmed delivery total, and
-                pay securely online.
-              </p>
-            </div>
-
-            <p className="relative z-10 mt-10 text-xs font-medium text-purple-100/70">
-              Every purchase supports the work of the foundation.
-            </p>
-          </section>
-
-          <section className="p-6 sm:p-10 lg:p-12">
-            <div className="mb-7 flex h-12 w-12 items-center justify-center rounded-2xl bg-purple-50 text-cefPurple">
-              {verificationStep ? (
-                <ShieldCheck className="h-5 w-5" aria-hidden="true" />
-              ) : mode === "login" ? (
-                <LockKeyhole className="h-5 w-5" aria-hidden="true" />
-              ) : (
-                <CircleUserRound className="h-5 w-5" aria-hidden="true" />
-              )}
-            </div>
-
-            <p className="text-xs font-bold uppercase tracking-[0.16em] text-cefBlue">
-              Member bookstore
-            </p>
-
-            <h2 className="mt-2 font-serif text-3xl font-bold text-gray-950">
-              {verificationStep
-                ? "Verify your email"
-                : mode === "login"
-                  ? "Welcome back"
-                  : "Create your account"}
-            </h2>
-
-            <p className="mt-2 text-sm leading-6 text-gray-500">
-              {verificationStep
-                ? "Enter the verification code sent to your email address."
-                : mode === "login"
-                  ? "Sign in to browse publications and manage your orders."
-                  : "Create a verified Neon account to access the CEF bookstore."}
-            </p>
-
-            {notice && (
-              <p
-                role="status"
-                className="mt-5 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900"
-              >
-                {notice}
-              </p>
-            )}
-
-            {error && (
-              <p
-                role="alert"
-                className="mt-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800"
-              >
-                {error}
-              </p>
-            )}
-
-            {verificationStep ? (
-              <form onSubmit={verifyEmail} className="mt-6 space-y-5">
-                <label className="block space-y-1.5 text-sm font-semibold text-gray-700">
-                  Email address
-                  <input
-                    type="email"
-                    value={verificationEmail}
-                    onChange={(event) =>
-                      setVerificationEmail(event.target.value)
-                    }
-                    required
-                    autoComplete="email"
-                    className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 font-normal outline-none focus:border-cefPurple focus:ring-2 focus:ring-purple-100"
-                  />
-                </label>
-
-                <label className="block space-y-1.5 text-sm font-semibold text-gray-700">
-                  Verification code
-                  <input
-                    type="text"
-                    value={verificationCode}
-                    onChange={(event) =>
-                      setVerificationCode(
-                        event.target.value.replace(/\D/g, "").slice(0, 6),
-                      )
-                    }
-                    inputMode="numeric"
-                    autoComplete="one-time-code"
-                    placeholder="Enter your code"
-                    required
-                    minLength={6}
-                    maxLength={6}
-                    className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-4 text-center text-2xl font-bold tracking-[0.5em] outline-none transition focus:border-cefPurple focus:ring-2 focus:ring-purple-100"
-                  />
-                  <span className="block text-xs font-normal text-gray-500">
-                    Enter the six-digit code sent to your email.
-                  </span>
-                </label>
-
-                <button
-                  type="submit"
-                  disabled={busy || verificationCode.length !== 6}
-                  className="flex w-full items-center justify-center gap-2 rounded-xl bg-cefPurple px-5 py-3.5 text-sm font-bold text-white shadow-lg shadow-purple-900/15 transition hover:bg-purple-900 disabled:cursor-wait disabled:opacity-60"
-                >
-                  {busy ? "Verifying..." : "Verify email"}
-                  {!busy && (
-                    <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
-                  )}
-                </button>
-
-                <button
-                  type="button"
-                  onClick={resendVerificationCode}
-                  disabled={busy}
-                  className="flex w-full items-center justify-center gap-2 rounded-xl border border-gray-200 px-5 py-3 text-sm font-bold text-cefPurple transition hover:bg-purple-50 disabled:opacity-60"
-                >
-                  <Mail className="h-4 w-4" aria-hidden="true" />
-                  Resend verification code
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setVerificationStep(false);
-                    setVerificationCode("");
-                    setNotice("");
-                    setError("");
-                    setMode("login");
-                  }}
-                  className="w-full text-center text-sm font-semibold text-gray-500 hover:text-cefPurple"
-                >
-                  Back to sign in
-                </button>
-              </form>
-            ) : (
-              <>
-                <form onSubmit={submitAuth} className="mt-6 space-y-4">
-                  {mode === "register" && (
-                    <label className="block space-y-1.5 text-sm font-semibold text-gray-700">
-                      Full name
-                      <input
-                        name="name"
-                        type="text"
-                        autoComplete="name"
-                        required
-                        minLength={2}
-                        maxLength={120}
-                        className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 font-normal outline-none transition focus:border-cefPurple focus:ring-2 focus:ring-purple-100"
-                      />
-                    </label>
-                  )}
-
-                  <label className="block space-y-1.5 text-sm font-semibold text-gray-700">
-                    Email address
-                    <input
-                      name="email"
-                      type="email"
-                      autoComplete="email"
-                      required
-                      maxLength={254}
-                      className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 font-normal outline-none transition focus:border-cefPurple focus:ring-2 focus:ring-purple-100"
-                    />
-                  </label>
-
-                  <label className="block space-y-1.5 text-sm font-semibold text-gray-700">
-                    Password
-                    <input
-                      name="password"
-                      type="password"
-                      autoComplete={
-                        mode === "register"
-                          ? "new-password"
-                          : "current-password"
-                      }
-                      required
-                      minLength={mode === "register" ? 12 : 1}
-                      maxLength={72}
-                      className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 font-normal outline-none transition focus:border-cefPurple focus:ring-2 focus:ring-purple-100"
-                    />
-
-                    {mode === "register" && (
-                      <span className="block text-xs font-normal text-gray-500">
-                        Use at least 12 characters.
-                      </span>
-                    )}
-                  </label>
-
-                  <button
-                    type="submit"
-                    disabled={busy}
-                    className="flex w-full items-center justify-center gap-2 rounded-xl bg-cefPurple px-5 py-3.5 text-sm font-bold text-white shadow-lg shadow-purple-900/15 transition hover:bg-purple-900 disabled:cursor-wait disabled:opacity-60"
-                  >
-                    {busy
-                      ? "Please wait..."
-                      : mode === "login"
-                        ? "Sign in"
-                        : "Create account"}
-
-                    {!busy && (
-                      <ArrowRight className="h-4 w-4" aria-hidden="true" />
-                    )}
-                  </button>
-                </form>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setVerificationStep(true);
-                    setVerificationEmail("");
-                    setVerificationCode("");
-                    setNotice(
-                      "Enter the email address you registered with and your verification code.",
-                    );
-                    setError("");
-                  }}
-                  className="mt-4 flex w-full items-center justify-center gap-2 text-sm font-semibold text-cefPurple hover:underline"
-                >
-                  <ShieldCheck className="h-4 w-4" aria-hidden="true" />
-                  Already have a verification code?
-                </button>
-
-                <p className="mt-6 border-t border-gray-100 pt-5 text-center text-sm text-gray-500">
-                  {mode === "login"
-                    ? "New to the store?"
-                    : "Already have an account?"}{" "}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setMode(mode === "login" ? "register" : "login");
-                      setError("");
-                      setNotice("");
-                    }}
-                    className="font-bold text-cefPurple hover:underline"
-                  >
-                    {mode === "login" ? "Create an account" : "Sign in"}
-                  </button>
-                </p>
-                <p className="mt-5 text-center text-sm text-gray-500">
-                  Need help with your account?{" "}
-                  <Link
-                    href="/contact"
-                    className="font-bold text-cefPurple hover:underline"
-                  >
-                    Contact support
-                  </Link>
-                </p>
-              </>
-            )}
-          </section>
-        </div>
-      </div>
-    );
-  }
-
-  // Signed-in bookstore interface
+  // Bookstore interface (public catalog, account tools when signed in)
   return (
     <div className="min-h-screen bg-gray-50 text-gray-800">
       <section className="cef-hero-backdrop relative overflow-hidden px-4 py-10 text-white sm:px-6 sm:py-14">
@@ -670,49 +259,54 @@ export default function Storefront({
               Books &amp; study parchments
             </h1>
 
-            <p className="text-sm font-semibold text-purple-100/80">Welcome back</p>
-            <p className="font-serif text-2xl font-bold leading-tight text-white sm:text-3xl">
-              {user.name}
-            </p>
-            <p className="max-w-2xl text-base leading-7 text-purple-100/90 sm:text-lg">
-              Browse books for sale and check out free study resources to download.
-            </p>
+            {user ? (
+              <>
+                <p className="text-sm font-semibold text-purple-100/80">
+                  Welcome back
+                </p>
+                <p className="font-serif text-2xl font-bold leading-tight text-white sm:text-3xl">
+                  {user.name}
+                </p>
+                <p className="max-w-2xl text-base leading-7 text-purple-100/90 sm:text-lg">
+                  Browse books for sale and check out free study resources to
+                  download.
+                </p>
+              </>
+            ) : (
+              <p className="max-w-2xl text-base leading-7 text-purple-100/90 sm:text-lg">
+                Browse the shelves freely. Sign in when you&apos;re ready to
+                buy a book or download a free resource.
+              </p>
+            )}
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
-            <Link
-              href="/contact"
-              className="inline-flex items-center gap-2 rounded-xl border border-white/25 bg-white/10 px-4 py-2.5 text-sm font-semibold transition hover:bg-white/20"
-            >
-              <Mail className="h-4 w-4" aria-hidden="true" />
-              Contact support
-            </Link>
-            <Link
-              href="/store/profile"
-              className="inline-flex items-center gap-2 rounded-xl border border-white/25 bg-white/10 px-4 py-2.5 text-sm font-semibold transition hover:bg-white/20"
-            >
-              <CircleUserRound className="h-4 w-4" aria-hidden="true" />
-              My Profile
-            </Link>
-
-            {user.role === "admin" && (
-              <Link
-                href="/admin/store"
-                className="rounded-xl border border-white/25 bg-white/10 px-4 py-2.5 text-sm font-bold transition hover:bg-white/20"
-              >
-                Store dashboard
-              </Link>
+            {user ? (
+              user.role === "admin" && (
+                <Link
+                  href="/admin/store"
+                  className="rounded-xl border border-white/25 bg-white/10 px-4 py-2.5 text-sm font-bold transition hover:bg-white/20"
+                >
+                  Store dashboard
+                </Link>
+              )
+            ) : (
+              <>
+                <Link
+                  href={signInUrl}
+                  className="inline-flex items-center gap-2 rounded-xl bg-white px-5 py-3 text-sm font-bold text-cefPurple shadow-lg transition hover:bg-purple-50"
+                >
+                  Sign in to buy
+                  <ArrowRight className="h-4 w-4" aria-hidden="true" />
+                </Link>
+                <Link
+                  href="/sign-up"
+                  className="inline-flex items-center gap-2 rounded-xl border border-white/25 bg-white/10 px-4 py-2.5 text-sm font-semibold transition hover:bg-white/20"
+                >
+                  Create account
+                </Link>
+              </>
             )}
-
-            <button
-              type="button"
-              onClick={signOut}
-              disabled={busy}
-              className="inline-flex items-center gap-2 rounded-xl border border-white/25 bg-white/10 px-4 py-2.5 text-sm font-semibold transition hover:bg-white/20 disabled:opacity-60"
-            >
-              <LogOut className="h-4 w-4" aria-hidden="true" />
-              Sign out
-            </button>
           </div>
         </div>
       </section>
@@ -851,34 +445,73 @@ export default function Storefront({
                       {product.productType === "free_resource" ? (
                         <>
                           <span className="text-lg font-extrabold text-emerald-700">Free</span>
-                          <button
-                            type="button"
-                            disabled={!product.downloadPath || downloadingProductId === product.id}
-                            onClick={() => void checkoutResource(product)}
-                            className="inline-flex items-center gap-2 rounded-xl bg-cefPurple px-4 py-2.5 text-xs font-bold text-white transition hover:bg-purple-900 disabled:cursor-not-allowed disabled:bg-gray-300"
-                          >
-                            <Download className="h-4 w-4" aria-hidden="true" />
-                            {!product.downloadPath
-                              ? "PDF coming soon"
-                              : downloadingProductId === product.id
+                          {!product.downloadPath ? (
+                            <button
+                              type="button"
+                              disabled
+                              className="inline-flex items-center gap-2 rounded-xl bg-cefPurple px-4 py-2.5 text-xs font-bold text-white transition disabled:cursor-not-allowed disabled:bg-gray-300"
+                            >
+                              <Download className="h-4 w-4" aria-hidden="true" />
+                              PDF coming soon
+                            </button>
+                          ) : user ? (
+                            <button
+                              type="button"
+                              disabled={downloadingProductId === product.id}
+                              onClick={() =>
+                                void downloadResource(product, {
+                                  checkout: true,
+                                })
+                              }
+                              className="inline-flex items-center gap-2 rounded-xl bg-cefPurple px-4 py-2.5 text-xs font-bold text-white transition hover:bg-purple-900 disabled:cursor-not-allowed disabled:bg-gray-300"
+                            >
+                              <Download className="h-4 w-4" aria-hidden="true" />
+                              {downloadingProductId === product.id
                                 ? "Preparing..."
-                                : "Checkout & download"}
-                          </button>
+                                : "Checkout & download PDF"}
+                            </button>
+                          ) : (
+                            <Link
+                              href={signInUrl}
+                              className="inline-flex items-center gap-2 rounded-xl bg-cefPurple px-4 py-2.5 text-xs font-bold text-white transition hover:bg-purple-900"
+                            >
+                              <Download className="h-4 w-4" aria-hidden="true" />
+                              Sign in to download
+                            </Link>
+                          )}
                         </>
                       ) : (
                         <>
                           <span className="text-lg font-extrabold text-gray-950">
                             {formatGhs(product.pricePesewas)}
                           </span>
-                          <button
-                            type="button"
-                            disabled={product.stockQuantity < 1}
-                            onClick={() => updateQuantity(product, 1)}
-                            className="inline-flex items-center gap-2 rounded-xl bg-cefPurple px-4 py-2.5 text-xs font-bold text-white transition hover:bg-purple-900 disabled:cursor-not-allowed disabled:bg-gray-300"
-                          >
-                            <ShoppingBag className="h-4 w-4" aria-hidden="true" />
-                            Add to cart
-                          </button>
+                          {product.stockQuantity < 1 ? (
+                            <button
+                              type="button"
+                              disabled
+                              className="inline-flex items-center gap-2 rounded-xl bg-cefPurple px-4 py-2.5 text-xs font-bold text-white transition disabled:cursor-not-allowed disabled:bg-gray-300"
+                            >
+                              <ShoppingBag className="h-4 w-4" aria-hidden="true" />
+                              Currently unavailable
+                            </button>
+                          ) : user ? (
+                            <button
+                              type="button"
+                              onClick={() => updateQuantity(product, 1)}
+                              className="inline-flex items-center gap-2 rounded-xl bg-cefPurple px-4 py-2.5 text-xs font-bold text-white transition hover:bg-purple-900"
+                            >
+                              <ShoppingBag className="h-4 w-4" aria-hidden="true" />
+                              Add to cart
+                            </button>
+                          ) : (
+                            <Link
+                              href={signInUrl}
+                              className="inline-flex items-center gap-2 rounded-xl bg-cefPurple px-4 py-2.5 text-xs font-bold text-white transition hover:bg-purple-900"
+                            >
+                              <ShoppingBag className="h-4 w-4" aria-hidden="true" />
+                              Sign in to buy
+                            </Link>
+                          )}
                         </>
                       )}
                     </div>
@@ -891,6 +524,64 @@ export default function Storefront({
             </div>
           )}
         </section>
+
+        {user && downloads.length > 0 && (
+          <section
+            aria-labelledby="downloads-title"
+            className="rounded-2xl border border-emerald-200 bg-white p-5 shadow-sm sm:p-7"
+          >
+            <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700">
+                  <Download className="h-5 w-5" aria-hidden="true" />
+                </span>
+
+                <div>
+                  <h2
+                    id="downloads-title"
+                    className="font-serif text-xl font-bold text-gray-950"
+                  >
+                    Your PDF downloads
+                  </h2>
+                  <p className="text-xs text-gray-500">
+                    Free parchments you have checked out. Download them any
+                    time.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <ul className="divide-y divide-gray-100">
+              {downloads.map((resource) => (
+                <li
+                  key={resource.id}
+                  className="flex flex-wrap items-center justify-between gap-4 py-4 first:pt-0 last:pb-0"
+                >
+                  <div className="min-w-0">
+                    <p className="text-sm font-bold text-gray-900">
+                      {resource.title}
+                    </p>
+                    <p className="mt-0.5 text-xs text-gray-500">
+                      {resource.category} · PDF
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    disabled={downloadingProductId === resource.id}
+                    onClick={() => void downloadResource(resource)}
+                    className="inline-flex items-center gap-2 rounded-xl bg-cefPurple px-4 py-2.5 text-xs font-bold text-white transition hover:bg-purple-900 disabled:cursor-wait disabled:bg-gray-300"
+                  >
+                    <Download className="h-4 w-4" aria-hidden="true" />
+                    {downloadingProductId === resource.id
+                      ? "Preparing..."
+                      : "Download PDF"}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
 
         {cartItems.length > 0 && (
           <section
@@ -1007,7 +698,7 @@ export default function Storefront({
                     name="recipientName"
                     required
                     maxLength={120}
-                    defaultValue={user.name}
+                    defaultValue={user?.name ?? ""}
                     className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3.5 py-3 text-sm font-normal outline-none focus:border-cefPurple focus:ring-2 focus:ring-purple-100"
                   />
                 </label>
@@ -1020,7 +711,7 @@ export default function Storefront({
                     autoComplete="tel"
                     required
                     maxLength={32}
-                    defaultValue={user.phone ?? ""}
+                    defaultValue={user?.phone ?? ""}
                     className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3.5 py-3 text-sm font-normal outline-none focus:border-cefPurple focus:ring-2 focus:ring-purple-100"
                   />
                 </label>
@@ -1032,7 +723,7 @@ export default function Storefront({
                     autoComplete="street-address"
                     required
                     maxLength={200}
-                    defaultValue={user.addressLine1 ?? ""}
+                    defaultValue={user?.addressLine1 ?? ""}
                     placeholder="House number, street, neighbourhood"
                     className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3.5 py-3 text-sm font-normal outline-none focus:border-cefPurple focus:ring-2 focus:ring-purple-100"
                   />
@@ -1043,7 +734,7 @@ export default function Storefront({
                   <input
                     name="addressLine2"
                     maxLength={200}
-                    defaultValue={user.addressLine2 ?? ""}
+                    defaultValue={user?.addressLine2 ?? ""}
                     placeholder="Apartment, landmark, or additional directions"
                     className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3.5 py-3 text-sm font-normal outline-none focus:border-cefPurple focus:ring-2 focus:ring-purple-100"
                   />
@@ -1056,7 +747,7 @@ export default function Storefront({
                     required
                     maxLength={100}
                     autoComplete="address-level2"
-                    defaultValue={user.city ?? ""}
+                    defaultValue={user?.city ?? ""}
                     className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3.5 py-3 text-sm font-normal outline-none focus:border-cefPurple focus:ring-2 focus:ring-purple-100"
                   />
                 </label>
@@ -1068,7 +759,7 @@ export default function Storefront({
                     required
                     maxLength={100}
                     autoComplete="address-level1"
-                    defaultValue={user.region ?? ""}
+                    defaultValue={user?.region ?? ""}
                     className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3.5 py-3 text-sm font-normal outline-none focus:border-cefPurple focus:ring-2 focus:ring-purple-100"
                   />
                 </label>
@@ -1079,7 +770,7 @@ export default function Storefront({
                     name="deliveryNote"
                     rows={3}
                     maxLength={500}
-                    defaultValue={user.deliveryNote ?? ""}
+                    defaultValue={user?.deliveryNote ?? ""}
                     className="w-full resize-y rounded-xl border border-gray-200 bg-gray-50 px-3.5 py-3 text-sm font-normal outline-none focus:border-cefPurple focus:ring-2 focus:ring-purple-100"
                   />
                 </label>
@@ -1121,7 +812,21 @@ export default function Storefront({
             </div>
           </div>
 
-          {orders.length === 0 ? (
+          {!user ? (
+            <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-dashed border-purple-200 bg-white p-6">
+              <p className="text-sm text-gray-600">
+                Sign in to see your orders, track deliveries, and pay for
+                confirmed orders.
+              </p>
+              <Link
+                href={signInUrl}
+                className="inline-flex items-center gap-2 rounded-xl bg-cefPurple px-4 py-2.5 text-xs font-bold text-white transition hover:bg-purple-900"
+              >
+                Sign in
+                <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+              </Link>
+            </div>
+          ) : orders.length === 0 ? (
             <p className="rounded-2xl border border-dashed border-gray-300 bg-white p-6 text-sm text-gray-500">
               Your placed orders will appear here.
             </p>

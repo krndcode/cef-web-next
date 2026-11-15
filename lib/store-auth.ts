@@ -37,17 +37,47 @@ function toStoreUser(row: UserRow): StoreUser {
   };
 }
 
-export async function getStoreUser(): Promise<StoreUser | null> {
+/**
+ * Returns the Neon Auth user only when the account has confirmed its email
+ * address. Bookstore endpoints are authorization boundaries, so an unverified
+ * session must behave exactly like a guest session: no orders, no profile, no
+ * downloads, and no admin access.
+ */
+export async function getVerifiedAuthUser() {
   const { data, error } = await getNeonAuth().getSession();
   if (error) {
     throw new Error(`Could not validate the Neon Auth session: ${error.message}`);
   }
+
   const authUser = data?.user;
+  if (!authUser || authUser.emailVerified !== true) {
+    return null;
+  }
+
+  return authUser;
+}
+
+export async function getStoreUser(): Promise<StoreUser | null> {
+  const authUser = await getVerifiedAuthUser();
   if (!authUser) {
     return null;
   }
 
-  return getStoreUserForNeonAuth(authUser.id);
+  const existing = await getStoreUserForNeonAuth(authUser.id);
+  if (existing) {
+    return existing;
+  }
+
+  // The verified Neon Auth session has no matching bookstore account yet (for
+  // example, an older session from before the account was linked). Provision
+  // it so confirmed users are never treated as guests.
+  const provisioned = await ensureStoreUserForNeonAuth({
+    id: authUser.id,
+    name: authUser.name,
+    email: authUser.email,
+  });
+
+  return provisioned.isActive ? provisioned : null;
 }
 
 export async function getStoreUserForNeonAuth(
@@ -72,24 +102,15 @@ export async function getStoreUserForNeonAuth(
   return toStoreUser(row);
 }
 
-export class StoreEmailVerificationRequiredError extends Error {}
-
 export async function ensureStoreUserForNeonAuth(input: {
   id: string;
   name: string;
   email: string;
-  emailVerified: boolean;
 }): Promise<StoreUser> {
-  if (!input.emailVerified) {
-    throw new StoreEmailVerificationRequiredError(
-      "Verify your email address with Neon Auth before accessing the bookstore.",
-    );
-  }
-
   const email = input.email.trim().toLowerCase();
-  const name = input.name.trim();
-  if (!email || !name || !input.id) {
-    throw new Error("Neon Auth returned an incomplete verified user profile.");
+  const name = input.name.trim() || email.split("@")[0] || "CEF customer";
+  if (!email || !input.id) {
+    throw new Error("Neon Auth returned an incomplete user profile.");
   }
 
   const client = await getStoreDb().connect();

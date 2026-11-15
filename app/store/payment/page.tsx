@@ -12,11 +12,15 @@ type PaymentPageProps = {
 export default async function StorePaymentPage({
   searchParams,
 }: PaymentPageProps) {
+  const { reference = "" } = await searchParams;
+
   const user = await getStoreUser();
   if (!user) {
-    redirect("/store");
+    const nextPath = reference
+      ? `/store/payment?reference=${encodeURIComponent(reference)}`
+      : "/store/payment";
+    redirect(`/sign-in?next=${encodeURIComponent(nextPath)}`);
   }
 
-  const { reference = "" } = await searchParams;
   return <PaymentReturn reference={reference} />;
 }

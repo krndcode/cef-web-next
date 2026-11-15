@@ -66,6 +66,14 @@ export default function Footer() {
                 </svg>
               </a>
             </div>
+
+            <Link
+              href="/give-partner#donate"
+              className="mt-2 inline-flex w-fit items-center gap-2 rounded-xl bg-cefPurple px-4 py-2.5 text-xs font-bold text-white shadow-sm shadow-purple-950/30 transition hover:bg-purple-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cefPurple focus-visible:ring-offset-2 focus-visible:ring-offset-gray-900"
+            >
+              <HeartHandshake className="h-4 w-4 text-cefBlue" aria-hidden="true" />
+              Give &amp; Partner
+            </Link>
           </div>
 
           {/* Quick Links */}
@@ -85,10 +93,13 @@ export default function Footer() {
                 <Link href="/production" className="hover:text-white transition">Production & Articles</Link>
               </li>
               <li>
+                <Link href="/store" className="hover:text-white transition">Bookstore</Link>
+              </li>
+              <li>
                 <Link href="/contact" className="hover:text-white transition">Contact Us</Link>
               </li>
               <li>
-                <Link href="/give-partner#donate" className="hover:text-white transition">Donate & Partner</Link>
+                <Link href="/give-partner#donate" className="hover:text-white transition">Give &amp; Partner</Link>
               </li>
             </ul>
           </div>

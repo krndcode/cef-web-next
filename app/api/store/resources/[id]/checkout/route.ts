@@ -1,6 +1,9 @@
+import { constants } from "node:fs";
+import { access } from "node:fs/promises";
 import { NextResponse } from "next/server";
 import { getStoreUser, isSameOriginRequest } from "@/lib/store-auth";
 import { getStoreDb } from "@/lib/store-db";
+import { resolveResourceFilePath } from "@/lib/store-resources";
 import { z } from "zod";
 
 export const runtime = "nodejs";
@@ -23,15 +26,31 @@ export async function POST(request: Request, context: RouteContext) {
       return NextResponse.json({ error: "Resource not found." }, { status: 404 });
     }
 
-    const product = await getStoreDb().query<{ id: string }>(
-      `SELECT id FROM store_products
-       WHERE id = $1 AND is_active = TRUE AND product_type = 'free_resource'
-         AND download_path LIKE '/resources/%.pdf'`,
+    const product = await getStoreDb().query<{ download_path: string | null }>(
+      `SELECT download_path FROM store_products
+       WHERE id = $1 AND is_active = TRUE AND product_type = 'free_resource'`,
       [id],
     );
-    if (!product.rows[0]) {
+    const downloadPath = product.rows[0]?.download_path;
+    const filePath = downloadPath ? resolveResourceFilePath(downloadPath) : null;
+    if (!filePath) {
       return NextResponse.json(
         { error: "This free resource is not available for download yet." },
+        { status: 404 },
+      );
+    }
+
+    // Refuse to grant access to a product whose PDF has not been uploaded, so
+    // customers never reach a download that can only fail.
+    try {
+      await access(filePath, constants.R_OK);
+    } catch {
+      console.error("Free resource checkout found a missing PDF.", downloadPath);
+      return NextResponse.json(
+        {
+          error:
+            "The PDF file for this resource has not been uploaded yet. Please check back soon.",
+        },
         { status: 404 },
       );
     }

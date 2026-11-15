@@ -125,8 +125,30 @@ export async function getActiveProducts(): Promise<StoreProduct[]> {
   return result.rows.map(toProduct);
 }
 
-export async function getCustomerOrders(userId: string): Promise<StoreOrder[]> {
-  const result = await getStoreDb().query<OrderRow>(
+/**
+ * Free PDFs the customer has already checked out. Only products with an
+ * uploaded file are returned, so the store never shows a dead download link.
+ */
+export async function getCustomerDownloads(
+  userId: string,
+): Promise<StoreProduct[]> {
+  const result = await getStoreDb().query<ProductRow>(
+    `SELECT p.id, p.slug, p.title, p.category, p.description, p.price_pesewas,
+            p.stock_quantity, p.image_url, p.badge, p.product_type,
+            p.download_path, p.is_active
+     FROM store_resource_access a
+     JOIN store_products p ON p.id = a.product_id
+     WHERE a.user_id = $1
+       AND p.is_active = TRUE
+       AND p.product_type = 'free_resource'
+       AND p.download_path LIKE '/resources/%.pdf'
+     ORDER BY a.granted_at DESC`,
+    [userId],
+  );
+  return result.rows.map(toProduct);
+}
+
+export async function getCustomerOrders(userId: string): Promise<StoreOrder[]> {  const result = await getStoreDb().query<OrderRow>(
     `SELECT id, order_number, status, payment_status, subtotal_pesewas,
             delivery_fee_pesewas, total_pesewas, recipient_name, phone,
             address_line_1, address_line_2, city, region, delivery_note,

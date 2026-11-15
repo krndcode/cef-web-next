@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { getStoreUser } from "@/lib/store-auth";
+import { signInHref } from "@/lib/navigation";
 import ProfileForm from "./ProfileForm";
 
 export const metadata: Metadata = {
@@ -14,7 +15,7 @@ export const runtime = "nodejs";
 export default async function StoreProfilePage() {
   const user = await getStoreUser();
   if (!user) {
-    redirect("/store");
+    redirect(signInHref("/store/profile"));
   }
 
   return (

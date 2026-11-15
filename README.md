@@ -19,6 +19,8 @@ payments. Configure the following server-side environment variables in
   auth session cookies.
 - `NEON_AUTH_JWKS_URL` — branch JWKS endpoint, available for server-side JWT
   verification when needed.
+- `STORE_RESOURCE_DIR` — optional absolute path to a writable folder for
+  uploaded parchment PDFs. Defaults to `private-resources` in the app folder.
 
 Create `cef-web-next/.env.local` from `.env.example` and replace its placeholder
 values with your private PostgreSQL and Paystack configuration. Do not commit
@@ -64,11 +66,15 @@ inventory. Product images should be placed under `public/` and entered as
 local paths such as `/products/book-cover.jpg`.
 
 The store catalog groups products into V.O.C Books, Study Parchments, and
-Other Products. Study Parchments are free PDF resources; place their PDF files
-under `private-resources/resources/` and set the matching `/resources/<file>.pdf`
-path in the product form. The app grants access at free checkout and streams the
-PDF through an authenticated download route; do not put downloadable PDFs in
-`public/`.
+Other Products. Study Parchments are free PDF resources. Open
+**Admin → Store → Products**, add or edit a parchment, and use the **Parchment
+PDF** field to upload the file (PDF only, 25 MB maximum). The upload is stored
+privately under `private-resources/resources/` and the product's
+`/resources/<file>.pdf` download path is filled in automatically. The app
+grants access at free checkout and streams the PDF through an authenticated
+download route; do not put downloadable PDFs in `public/`. Uploaded PDFs are
+git-ignored. On a host where the app folder is read-only, point
+`STORE_RESOURCE_DIR` at a persistent writable volume.
 
 The `0005_admin_storefront` migration initializes the primary admin from the
 oldest active admin account and adds the support inbox, free-resource access,

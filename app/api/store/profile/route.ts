@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
-import { getNeonAuth } from "@/lib/neon-auth";
 import {
   ensureStoreUserForNeonAuth,
-  StoreEmailVerificationRequiredError,
   getStoreUserForNeonAuth,
+  getVerifiedAuthUser,
   isSameOriginRequest,
 } from "@/lib/store-auth";
 import { getStoreDb } from "@/lib/store-db";
@@ -37,23 +36,25 @@ function toProfile(row: ProfileRow) {
 }
 
 async function getAuthenticatedProfileUser() {
-  const { data, error } = await getNeonAuth().getSession();
-  if (error) {
-    throw new Error(`Could not validate the Neon Auth session: ${error.message}`);
-  }
-
-  const authUser = data?.user;
+  const authUser = await getVerifiedAuthUser();
   if (!authUser) {
     return { authUser: null, user: null };
   }
-  if (!authUser.emailVerified) {
-    return { authUser, user: null };
+
+  const existing = await getStoreUserForNeonAuth(authUser.id);
+  if (existing) {
+    return { authUser, user: existing.isActive ? existing : null };
   }
 
-  return {
-    authUser,
-    user: await getStoreUserForNeonAuth(authUser.id),
-  };
+  // The auth session is valid, so make sure the matching bookstore account
+  // exists. Neon Auth is the source of truth for sign-in and verification.
+  const created = await ensureStoreUserForNeonAuth({
+    id: authUser.id,
+    name: authUser.name,
+    email: authUser.email,
+  });
+
+  return { authUser, user: created.isActive ? created : null };
 }
 
 export async function GET() {
@@ -67,11 +68,7 @@ export async function GET() {
     }
     if (!user) {
       return NextResponse.json(
-        {
-          error: authUser.emailVerified
-            ? "Your bookstore account is unavailable."
-            : "Verify your email address to access your bookstore profile.",
-        },
+        { error: "Your bookstore account is disabled. Contact support." },
         { status: 403 },
       );
     }
@@ -127,11 +124,7 @@ export async function PATCH(request: Request) {
     }
     if (!user) {
       return NextResponse.json(
-        {
-          error: authUser.emailVerified
-            ? "Your bookstore account is unavailable."
-            : "Verify your email address to update your bookstore profile.",
-        },
+        { error: "Your bookstore account is disabled. Contact support." },
         { status: 403 },
       );
     }
@@ -188,14 +181,10 @@ export async function POST(request: Request) {
   }
 
   try {
-    const { data, error } = await getNeonAuth().getSession();
-    if (error) {
-      throw new Error(`Could not validate the Neon Auth session: ${error.message}`);
-    }
-    const authUser = data?.user;
+    const authUser = await getVerifiedAuthUser();
     if (!authUser) {
       return NextResponse.json(
-        { error: "Sign in to access the bookstore." },
+        { error: "Confirm your email address to access the bookstore." },
         { status: 401 },
       );
     }
@@ -204,7 +193,6 @@ export async function POST(request: Request) {
       id: authUser.id,
       name: authUser.name,
       email: authUser.email,
-      emailVerified: authUser.emailVerified,
     });
     if (!user.isActive) {
       return NextResponse.json(
@@ -214,9 +202,6 @@ export async function POST(request: Request) {
     }
     return NextResponse.json({ user });
   } catch (error) {
-    if (error instanceof StoreEmailVerificationRequiredError) {
-      return NextResponse.json({ error: error.message }, { status: 403 });
-    }
     console.error("Store profile synchronization failed.", error);
     return NextResponse.json(
       { error: "Could not prepare your store account. Please try again." },

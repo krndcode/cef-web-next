@@ -3,6 +3,39 @@
 @theme {
   --color-cefPurple: #7B1FA2;
   --color-cefBlue: #0288D1;
+  /* AA-contrast shade of cefBlue for small text on white surfaces. */
+  --color-cefBlueInk: #0277BD;
+  /* Light page/field surface used by the auth screens. */
+  --color-cefPage: #F8F8FB;
+  /* Deep plum used by the auth panel gradient. */
+  --color-cefPlum: #1A0B2E;
+  --color-cefPlumSoft: #2A1245;
+}
+
+/* Deep plum panel with a soft blue glow, used by the auth screens. */
+.cef-auth-panel {
+  isolation: isolate;
+  background-color: var(--color-cefPlum);
+  background-image:
+    radial-gradient(ellipse at 82% 12%, rgba(2, 136, 209, 0.28), transparent 46%),
+    radial-gradient(ellipse at 8% 88%, rgba(123, 31, 162, 0.38), transparent 52%),
+    linear-gradient(
+      160deg,
+      var(--color-cefPlum) 0%,
+      var(--color-cefPlumSoft) 100%
+    );
+}
+
+/* Keep browser autofill from repainting auth inputs light blue. */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+input:-webkit-autofill:active {
+  -webkit-text-fill-color: #111827;
+  caret-color: #111827;
+  -webkit-box-shadow: 0 0 0 1000px var(--color-cefPage) inset;
+  box-shadow: 0 0 0 1000px var(--color-cefPage) inset;
+  transition: background-color 9999s ease-out 0s;
 }
 
 .cef-hero-backdrop {

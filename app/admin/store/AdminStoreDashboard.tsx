@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import type { FormEvent } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
@@ -11,9 +11,13 @@ import {
   ClipboardList,
   Eye,
   EyeOff,
+  FileText,
+  FileUp,
+  Loader2,
   PackagePlus,
   FileDown,
   Pencil,
+  Trash2,
 } from "lucide-react";
 import type { StoreOrder, StoreProduct, StoreUser } from "@/lib/store-types";
 import { formatGhs } from "@/lib/store-types";
@@ -58,6 +62,130 @@ async function sendAdminRequest(
   return { ...result, ok: response.ok };
 }
 
+function PdfUploadField({ initialPath }: { initialPath: string }) {
+  const inputId = useId();
+  const [downloadPath, setDownloadPath] = useState(initialPath);
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState("");
+
+  const fileName = downloadPath.split("/").filter(Boolean).at(-1) ?? "";
+
+  async function upload(file: File) {
+    setUploading(true);
+    setError("");
+
+    try {
+      const body = new FormData();
+      body.append("file", file);
+
+      const response = await fetch("/api/admin/products/pdf", {
+        method: "POST",
+        body,
+      });
+      let result: { error?: string; downloadPath?: string } = {};
+      try {
+        result = (await response.json()) as {
+          error?: string;
+          downloadPath?: string;
+        };
+      } catch {
+        result = {};
+      }
+
+      if (!response.ok || !result.downloadPath) {
+        setError(result.error ?? "Could not upload this PDF.");
+        return;
+      }
+
+      setDownloadPath(result.downloadPath);
+    } catch (uploadError) {
+      console.error("Admin PDF upload request failed.", uploadError);
+      setError("Could not reach the store. Check your connection and try again.");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  return (
+    <div className="space-y-2 sm:col-span-2">
+      <span className="text-xs font-bold text-gray-700">
+        Parchment PDF (required for free resources)
+      </span>
+      <input type="hidden" name="downloadPath" value={downloadPath} />
+
+      <div className="flex flex-wrap items-center gap-3 rounded-xl border border-dashed border-gray-300 bg-gray-50 px-3 py-3">
+        <FileText
+          className={`h-5 w-5 shrink-0 ${downloadPath ? "text-cefPurple" : "text-gray-400"}`}
+          aria-hidden="true"
+        />
+
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-semibold text-gray-800">
+            {fileName || "No PDF attached yet"}
+          </p>
+          <p className="text-[11px] leading-4 text-gray-500">
+            {downloadPath
+              ? "Stored privately. Customers get this file after checkout."
+              : "Upload the PDF customers should receive. Maximum 25 MB."}
+          </p>
+        </div>
+
+        <label
+          htmlFor={inputId}
+          className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs font-bold text-gray-700 transition hover:border-cefPurple hover:text-cefPurple aria-disabled:cursor-wait aria-disabled:opacity-60"
+          aria-disabled={uploading}
+        >
+          {uploading ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+          ) : (
+            <FileUp className="h-3.5 w-3.5" aria-hidden="true" />
+          )}
+          {uploading
+            ? "Uploading..."
+            : downloadPath
+              ? "Replace PDF"
+              : "Choose PDF"}
+        </label>
+        <input
+          id={inputId}
+          type="file"
+          accept="application/pdf,.pdf"
+          className="sr-only"
+          disabled={uploading}
+          onChange={(event) => {
+            const input = event.currentTarget;
+            const file = input.files?.[0];
+            input.value = "";
+            if (file) {
+              void upload(file);
+            }
+          }}
+        />
+
+        {downloadPath && !uploading && (
+          <button
+            type="button"
+            onClick={() => {
+              setDownloadPath("");
+              setError("");
+            }}
+            className="inline-flex items-center gap-1.5 rounded-lg px-2 py-2 text-xs font-bold text-red-700 transition hover:bg-red-50"
+          >
+            <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+            Remove
+          </button>
+        )}
+      </div>
+
+      {error && (
+        <p role="alert" className="text-xs font-medium text-red-600">
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function ProductFields({
   product,
   categories,
@@ -65,6 +193,11 @@ function ProductFields({
   product?: StoreProduct;
   categories: string[];
 }) {
+  const [category, setCategory] = useState(
+    product?.category ?? categories[0] ?? "",
+  );
+  const isParchment = category === "Study Parchments";
+
   return (
     <>
       <label className="space-y-1.5 text-xs font-bold text-gray-700">
@@ -83,9 +216,11 @@ function ProductFields({
         <select
           name="category"
           required
-          defaultValue={product?.category ?? categories[0] ?? ""}
+          value={category}
           onChange={(event) => {
-            if (event.currentTarget.value === "Study Parchments") {
+            const value = event.currentTarget.value;
+            setCategory(value);
+            if (value === "Study Parchments") {
               const form = event.currentTarget.form;
               const price = form?.querySelector<HTMLInputElement>('[name="priceGhs"]');
               const stock = form?.querySelector<HTMLInputElement>('[name="stockQuantity"]');
@@ -100,9 +235,9 @@ function ProductFields({
               No store categories available
             </option>
           )}
-          {categories.map((category) => (
-            <option key={category} value={category}>
-              {category}
+          {categories.map((option) => (
+            <option key={option} value={option}>
+              {option}
             </option>
           ))}
         </select>
@@ -118,7 +253,9 @@ function ProductFields({
           defaultValue={
             product
               ? (product.pricePesewas / 100).toFixed(2)
-              : ""
+              : isParchment
+                ? "0.00"
+                : ""
           }
           className={adminInputClassName}
         />
@@ -158,16 +295,6 @@ function ProductFields({
           placeholder="/products/book-cover.jpg"
         />
       </label>
-      <label className="space-y-1.5 text-xs font-bold text-gray-700 sm:col-span-2">
-        PDF path (required for free resources)
-        <input
-          name="downloadPath"
-          maxLength={500}
-          defaultValue={product?.downloadPath ?? ""}
-          className={adminInputClassName}
-          placeholder="/resources/study-guide.pdf"
-        />
-      </label>
       <label className="space-y-1.5 text-xs font-bold text-gray-700">
         Badge (optional)
         <input
@@ -178,6 +305,7 @@ function ProductFields({
           placeholder="New release"
         />
       </label>
+      {isParchment && <PdfUploadField initialPath={product?.downloadPath ?? ""} />}
       <label className="flex items-center gap-2 text-sm font-semibold text-gray-700 sm:col-span-2">
         <input
           name="isActive"
@@ -190,6 +318,7 @@ function ProductFields({
     </>
   );
 }
+
 
 export default function AdminStoreDashboard({
   admin,
@@ -205,6 +334,7 @@ export default function AdminStoreDashboard({
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
   const [editingProductId, setEditingProductId] = useState<string | null>(null);
+  const [addFormVersion, setAddFormVersion] = useState(0);
   const productCategories = [...new Set(products.map((product) => product.category))];
   const storeCustomers = customers.filter((customer) => customer.role === "customer");
   const visibleOrders = filter === "attention"
@@ -267,6 +397,8 @@ export default function AdminStoreDashboard({
       setNotice(productId ? "Product updated." : "Product added.");
       if (!productId) {
         form.reset();
+        // Remount the fields so the upload field and category reset too.
+        setAddFormVersion((version) => version + 1);
       } else {
         setEditingProductId(null);
       }
@@ -567,7 +699,7 @@ export default function AdminStoreDashboard({
               onSubmit={(event) => void submitProduct(event)}
               className="grid gap-4 border-t border-gray-100 p-5 sm:grid-cols-2"
             >
-              <ProductFields categories={productCategories} />
+              <ProductFields key={addFormVersion} categories={productCategories} />
               <button
                 type="submit"
                 disabled={busy || productCategories.length === 0}

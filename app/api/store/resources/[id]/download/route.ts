@@ -1,8 +1,11 @@
 import { readFile } from "node:fs/promises";
-import { basename, resolve, sep } from "node:path";
 import { NextResponse } from "next/server";
 import { getStoreUser } from "@/lib/store-auth";
 import { getStoreDb } from "@/lib/store-db";
+import {
+  resolveResourceFilePath,
+  safeResourceSlug,
+} from "@/lib/store-resources";
 import { z } from "zod";
 
 export const runtime = "nodejs";
@@ -23,9 +26,10 @@ export async function GET(_request: Request, context: RouteContext) {
 
     const result = await getStoreDb().query<{
       title: string;
+      slug: string;
       download_path: string;
     }>(
-      `SELECT p.title, p.download_path
+      `SELECT p.title, p.slug, p.download_path
        FROM store_resource_access a
        JOIN store_products p ON p.id = a.product_id
        WHERE a.user_id = $1 AND p.id = $2 AND p.is_active = TRUE
@@ -33,13 +37,15 @@ export async function GET(_request: Request, context: RouteContext) {
       [user.id, id],
     );
     const resource = result.rows[0];
-    if (!resource?.download_path?.startsWith("/resources/")) {
-      return NextResponse.json({ error: "Complete checkout before downloading this file." }, { status: 403 });
+    if (!resource?.download_path) {
+      return NextResponse.json(
+        { error: "Complete checkout before downloading this file." },
+        { status: 403 },
+      );
     }
 
-    const root = resolve(process.cwd(), "private-resources");
-    const filePath = resolve(root, resource.download_path.slice(1));
-    if (!filePath.startsWith(`${root}${sep}`) || !filePath.toLowerCase().endsWith(".pdf")) {
+    const filePath = resolveResourceFilePath(resource.download_path);
+    if (!filePath) {
       return NextResponse.json({ error: "Resource file path is invalid." }, { status: 404 });
     }
 
@@ -51,11 +57,19 @@ export async function GET(_request: Request, context: RouteContext) {
       return NextResponse.json({ error: "The PDF file is not available yet." }, { status: 404 });
     }
 
-    const filename = basename(filePath).replace(/["\\\r\n]/g, "_");
+    const title = safeResourceSlug(resource.title);
+    const filename = `${title || safeResourceSlug(resource.slug) || "cef-resource"}.pdf`.replace(
+      /["\\\r\n]/g,
+      "_",
+    );
+
     return new Response(new Uint8Array(file), {
       headers: {
         "Content-Type": "application/pdf",
-        "Content-Disposition": `attachment; filename="${filename}"`,
+        "Content-Disposition": `attachment; filename="${filename}"; filename*=UTF-8''${encodeURIComponent(
+          filename,
+        )}`,
+        "Content-Length": String(file.byteLength),
         "Cache-Control": "private, no-store",
         "X-Content-Type-Options": "nosniff",
       },

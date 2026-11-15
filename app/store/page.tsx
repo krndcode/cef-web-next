@@ -2,6 +2,7 @@ import Storefront from "./Storefront";
 import { getStoreUser } from "@/lib/store-auth";
 import {
   getActiveProducts,
+  getCustomerDownloads,
   getCustomerOrders,
 } from "@/lib/store-queries";
 import type { StoreOrder, StoreProduct, StoreUser } from "@/lib/store-types";
@@ -41,30 +42,51 @@ export default async function StorePage({ searchParams }: StorePageProps) {
   let user: StoreUser | null = null;
   let products: StoreProduct[] = [];
   let orders: StoreOrder[] = [];
+  let downloads: StoreProduct[] = [];
   let setupIssue = false;
 
   try {
-    user = await getStoreUser();
-    if (user) {
-      [products, orders] = await Promise.all([
-        getActiveProducts(),
-        getCustomerOrders(user.id),
-      ]);
-    }
+    // The catalog is public: anyone may browse the store.
+    products = await getActiveProducts();
   } catch (error) {
     console.error("Could not load the PostgreSQL store.", error);
     setupIssue = true;
   }
 
+  if (!setupIssue) {
+    try {
+      user = await getStoreUser();
+    } catch (error) {
+      // A missing or expired session must not block the public catalog.
+      console.error("Could not read the bookstore session.", error);
+    }
+
+    if (user) {
+      try {
+        orders = await getCustomerOrders(user.id);
+      } catch (error) {
+        console.error("Could not load the customer's store orders.", error);
+      }
+
+      try {
+        downloads = await getCustomerDownloads(user.id);
+      } catch (error) {
+        console.error("Could not load the customer's PDF downloads.", error);
+      }
+    }
+  }
+
   if (setupIssue) {
     return <StoreSetupNotice databaseReady />;
   }
+
   const { order } = await searchParams;
   return (
     <Storefront
       user={user}
       products={products}
       orders={orders}
+      downloads={downloads}
       focusOrderId={typeof order === "string" ? order : undefined}
     />
   );

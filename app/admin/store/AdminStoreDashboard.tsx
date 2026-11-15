@@ -9,11 +9,10 @@ import {
   Check,
   CircleUserRound,
   ClipboardList,
+  ExternalLink,
   Eye,
   EyeOff,
-  FileText,
-  FileUp,
-  Loader2,
+  Link2,
   PackagePlus,
   FileDown,
   Pencil,
@@ -21,6 +20,7 @@ import {
 } from "lucide-react";
 import type { StoreOrder, StoreProduct, StoreUser } from "@/lib/store-types";
 import { formatGhs } from "@/lib/store-types";
+import { parseGoogleDriveLink } from "@/lib/google-drive";
 import { LOW_STOCK_THRESHOLD } from "@/lib/admin-dashboard-constants";
 import {
   CollapsibleCategorySection,
@@ -62,124 +62,85 @@ async function sendAdminRequest(
   return { ...result, ok: response.ok };
 }
 
-function PdfUploadField({ initialPath }: { initialPath: string }) {
+function DriveLinkField({ initialUrl }: { initialUrl: string }) {
   const inputId = useId();
-  const [downloadPath, setDownloadPath] = useState(initialPath);
-  const [uploading, setUploading] = useState(false);
-  const [error, setError] = useState("");
-
-  const fileName = downloadPath.split("/").filter(Boolean).at(-1) ?? "";
-
-  async function upload(file: File) {
-    setUploading(true);
-    setError("");
-
-    try {
-      const body = new FormData();
-      body.append("file", file);
-
-      const response = await fetch("/api/admin/products/pdf", {
-        method: "POST",
-        body,
-      });
-      let result: { error?: string; downloadPath?: string } = {};
-      try {
-        result = (await response.json()) as {
-          error?: string;
-          downloadPath?: string;
-        };
-      } catch {
-        result = {};
-      }
-
-      if (!response.ok || !result.downloadPath) {
-        setError(result.error ?? "Could not upload this PDF.");
-        return;
-      }
-
-      setDownloadPath(result.downloadPath);
-    } catch (uploadError) {
-      console.error("Admin PDF upload request failed.", uploadError);
-      setError("Could not reach the store. Check your connection and try again.");
-    } finally {
-      setUploading(false);
-    }
-  }
+  const [downloadUrl, setDownloadUrl] = useState(initialUrl);
+  const drive = parseGoogleDriveLink(downloadUrl);
+  const invalid = downloadUrl.trim().length > 0 && !drive;
 
   return (
     <div className="space-y-2 sm:col-span-2">
-      <span className="text-xs font-bold text-gray-700">
-        Parchment PDF (required for free resources)
-      </span>
-      <input type="hidden" name="downloadPath" value={downloadPath} />
+      <label htmlFor={inputId} className="text-xs font-bold text-gray-700">
+        Parchment PDF link (Google Drive)
+      </label>
 
-      <div className="flex flex-wrap items-center gap-3 rounded-xl border border-dashed border-gray-300 bg-gray-50 px-3 py-3">
-        <FileText
-          className={`h-5 w-5 shrink-0 ${downloadPath ? "text-cefPurple" : "text-gray-400"}`}
-          aria-hidden="true"
-        />
-
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-semibold text-gray-800">
-            {fileName || "No PDF attached yet"}
-          </p>
-          <p className="text-[11px] leading-4 text-gray-500">
-            {downloadPath
-              ? "Stored privately. Customers get this file after checkout."
-              : "Upload the PDF customers should receive. Maximum 25 MB."}
-          </p>
+      <div className="flex items-center gap-2">
+        <div className="relative min-w-0 flex-1">
+          <Link2
+            className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400"
+            aria-hidden="true"
+          />
+          <input
+            id={inputId}
+            name="downloadUrl"
+            type="url"
+            required
+            inputMode="url"
+            autoComplete="off"
+            spellCheck={false}
+            value={downloadUrl}
+            onChange={(event) => setDownloadUrl(event.currentTarget.value)}
+            placeholder="https://drive.google.com/file/d/.../view?usp=sharing"
+            aria-invalid={invalid || undefined}
+            aria-describedby={`${inputId}-help`}
+            className={`${adminInputClassName} pl-9 ${
+              invalid
+                ? "border-red-400 focus:border-red-500 focus:ring-red-100"
+                : ""
+            }`}
+          />
         </div>
 
-        <label
-          htmlFor={inputId}
-          className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs font-bold text-gray-700 transition hover:border-cefPurple hover:text-cefPurple aria-disabled:cursor-wait aria-disabled:opacity-60"
-          aria-disabled={uploading}
-        >
-          {uploading ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
-          ) : (
-            <FileUp className="h-3.5 w-3.5" aria-hidden="true" />
-          )}
-          {uploading
-            ? "Uploading..."
-            : downloadPath
-              ? "Replace PDF"
-              : "Choose PDF"}
-        </label>
-        <input
-          id={inputId}
-          type="file"
-          accept="application/pdf,.pdf"
-          className="sr-only"
-          disabled={uploading}
-          onChange={(event) => {
-            const input = event.currentTarget;
-            const file = input.files?.[0];
-            input.value = "";
-            if (file) {
-              void upload(file);
-            }
-          }}
-        />
-
-        {downloadPath && !uploading && (
+        {downloadUrl && (
           <button
             type="button"
-            onClick={() => {
-              setDownloadPath("");
-              setError("");
-            }}
-            className="inline-flex items-center gap-1.5 rounded-lg px-2 py-2 text-xs font-bold text-red-700 transition hover:bg-red-50"
+            onClick={() => setDownloadUrl("")}
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg px-2 py-2 text-xs font-bold text-red-700 transition hover:bg-red-50"
           >
             <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
-            Remove
+            Clear
           </button>
         )}
       </div>
 
-      {error && (
+      <p id={`${inputId}-help`} className="text-[11px] leading-4 text-gray-500">
+        In Google Drive, share the PDF as{" "}
+        <span className="font-semibold text-gray-700">
+          Anyone with the link can view
+        </span>
+        , then paste the link here. Customers are sent to Google Drive after
+        checkout.
+      </p>
+
+      {invalid && (
         <p role="alert" className="text-xs font-medium text-red-600">
-          {error}
+          Paste a Google Drive file link (not a folder link).
+        </p>
+      )}
+
+      {drive && (
+        <p className="flex flex-wrap items-center gap-2 text-xs font-medium text-emerald-700">
+          <Check className="h-3.5 w-3.5" aria-hidden="true" />
+          Link ready. Customers will open this file in Google Drive.
+          <a
+            href={drive.viewUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 font-bold underline decoration-emerald-300 underline-offset-2 hover:text-emerald-900"
+          >
+            Preview
+            <ExternalLink className="h-3 w-3" aria-hidden="true" />
+          </a>
         </p>
       )}
     </div>
@@ -305,7 +266,7 @@ function ProductFields({
           placeholder="New release"
         />
       </label>
-      {isParchment && <PdfUploadField initialPath={product?.downloadPath ?? ""} />}
+      {isParchment && <DriveLinkField initialUrl={product?.downloadUrl ?? ""} />}
       <label className="flex items-center gap-2 text-sm font-semibold text-gray-700 sm:col-span-2">
         <input
           name="isActive"
@@ -379,7 +340,7 @@ export default function AdminStoreDashboard({
           : "book",
       stockQuantity: Number(data.get("stockQuantity")),
       imageUrl: String(data.get("imageUrl") ?? ""),
-      downloadPath: String(data.get("downloadPath") ?? ""),
+      downloadUrl: String(data.get("downloadUrl") ?? ""),
       badge: String(data.get("badge") ?? ""),
       isActive: data.get("isActive") === "on",
     };
@@ -397,7 +358,7 @@ export default function AdminStoreDashboard({
       setNotice(productId ? "Product updated." : "Product added.");
       if (!productId) {
         form.reset();
-        // Remount the fields so the upload field and category reset too.
+        // Remount the fields so the Drive link field and category reset too.
         setAddFormVersion((version) => version + 1);
       } else {
         setEditingProductId(null);
@@ -423,7 +384,7 @@ export default function AdminStoreDashboard({
       productType: product.productType,
       stockQuantity: product.stockQuantity,
       imageUrl: product.imageUrl ?? "",
-      downloadPath: product.downloadPath ?? "",
+      downloadUrl: product.downloadUrl ?? "",
       badge: product.badge ?? "",
       isActive: !product.isActive,
     };

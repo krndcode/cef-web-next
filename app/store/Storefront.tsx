@@ -11,21 +11,27 @@ import {
   BookOpen,
   CheckCircle2,
   Download,
+  ExternalLink,
   Minus,
   PackageCheck,
   Plus,
   ShoppingBag,
   ShoppingCart,
 } from "lucide-react";
-import type { StoreOrder, StoreProduct, StoreUser } from "@/lib/store-types";
+import type {
+  StoreCatalogProduct,
+  StoreDownload,
+  StoreOrder,
+  StoreUser,
+} from "@/lib/store-types";
 import { formatGhs } from "@/lib/store-types";
 import { signInHref } from "@/lib/navigation";
 
 type StorefrontProps = {
   user: StoreUser | null;
-  products: StoreProduct[];
+  products: StoreCatalogProduct[];
   orders: StoreOrder[];
-  downloads: StoreProduct[];
+  downloads: StoreDownload[];
   focusOrderId?: string;
 };
 
@@ -72,73 +78,51 @@ export default function Storefront({
   const [downloadingProductId, setDownloadingProductId] = useState("");
 
   /**
-   * Fetches the private PDF and saves it in place. Free resources pass
-   * `checkout: true` so access is recorded before the file is requested.
-   * Keeping the user on the page means a missing or delayed upload shows an
-   * inline error instead of a raw JSON page.
+   * Records the free checkout, then opens the parchment in Google Drive in a
+   * new tab. The download route checks access again before redirecting, so the
+   * Drive link never appears in the public catalog.
    */
-  async function downloadResource(
-    product: StoreProduct,
-    options: { checkout?: boolean } = {},
-  ) {
+  async function downloadResource(product: StoreCatalogProduct) {
     setDownloadingProductId(product.id);
     setError("");
     setNotice("");
 
     try {
-      if (options.checkout) {
-        const checkoutResponse = await fetch(
-          `/api/store/resources/${product.id}/checkout`,
-          { method: "POST" },
-        );
-        const checkoutResult: ApiResponse & { downloadUrl?: string } =
-          await checkoutResponse.json().catch(() => ({}));
-        if (!checkoutResponse.ok || !checkoutResult.downloadUrl) {
-          setError(
-            checkoutResult.error ?? "Could not prepare this free download.",
-          );
-          return;
-        }
-      }
-
-      const fileResponse = await fetch(
-        `/api/store/resources/${product.id}/download`,
+      const checkoutResponse = await fetch(
+        `/api/store/resources/${product.id}/checkout`,
+        { method: "POST" },
       );
-      if (!fileResponse.ok) {
-        const failure: { error?: string } = await fileResponse
-          .json()
-          .catch(() => ({}));
+      const checkoutResult: ApiResponse & { downloadUrl?: string } =
+        await checkoutResponse.json().catch(() => ({}));
+      if (!checkoutResponse.ok || !checkoutResult.downloadUrl) {
         setError(
-          failure.error ??
-            "The PDF file is not available yet. Please check back soon.",
+          checkoutResult.error ?? "Could not prepare this free download.",
         );
         return;
       }
 
-      const blob = await fileResponse.blob();
-      const objectUrl = URL.createObjectURL(blob);
       const link = document.createElement("a");
-      link.href = objectUrl;
-      link.download = `${product.slug || "cef-resource"}.pdf`;
+      link.href = checkoutResult.downloadUrl;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
       document.body.appendChild(link);
       link.click();
       link.remove();
-      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 15_000);
 
-      setNotice(`${product.title} is downloading.`);
-      if (options.checkout) {
-        // Refresh so the new download appears in "Your PDF downloads".
-        router.refresh();
-      }
+      setNotice(
+        `${product.title} is opening in Google Drive. You can reopen it any time under “Your PDF downloads”.`,
+      );
+      // Refresh so the new download appears in "Your PDF downloads".
+      router.refresh();
     } catch (requestError) {
-      console.error("Free resource download failed.", requestError);
-      setError("Could not download this resource. Please try again.");
+      console.error("Free resource checkout failed.", requestError);
+      setError("Could not open this resource. Please try again.");
     } finally {
       setDownloadingProductId("");
     }
   }
 
-  function updateQuantity(product: StoreProduct, change: number) {
+  function updateQuantity(product: StoreCatalogProduct, change: number) {
     setCart((current) => {
       const quantity = Math.max(
         0,
@@ -445,7 +429,7 @@ export default function Storefront({
                       {product.productType === "free_resource" ? (
                         <>
                           <span className="text-lg font-extrabold text-emerald-700">Free</span>
-                          {!product.downloadPath ? (
+                          {!product.hasDownload ? (
                             <button
                               type="button"
                               disabled
@@ -458,11 +442,7 @@ export default function Storefront({
                             <button
                               type="button"
                               disabled={downloadingProductId === product.id}
-                              onClick={() =>
-                                void downloadResource(product, {
-                                  checkout: true,
-                                })
-                              }
+                              onClick={() => void downloadResource(product)}
                               className="inline-flex items-center gap-2 rounded-xl bg-cefPurple px-4 py-2.5 text-xs font-bold text-white transition hover:bg-purple-900 disabled:cursor-not-allowed disabled:bg-gray-300"
                             >
                               <Download className="h-4 w-4" aria-hidden="true" />
@@ -544,8 +524,8 @@ export default function Storefront({
                     Your PDF downloads
                   </h2>
                   <p className="text-xs text-gray-500">
-                    Free parchments you have checked out. Download them any
-                    time.
+                    Free parchments you have checked out. Downloads open in
+                    Google Drive.
                   </p>
                 </div>
               </div>
@@ -566,17 +546,15 @@ export default function Storefront({
                     </p>
                   </div>
 
-                  <button
-                    type="button"
-                    disabled={downloadingProductId === resource.id}
-                    onClick={() => void downloadResource(resource)}
-                    className="inline-flex items-center gap-2 rounded-xl bg-cefPurple px-4 py-2.5 text-xs font-bold text-white transition hover:bg-purple-900 disabled:cursor-wait disabled:bg-gray-300"
+                  <a
+                    href={`/api/store/resources/${resource.id}/download`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-2 rounded-xl bg-cefPurple px-4 py-2.5 text-xs font-bold text-white transition hover:bg-purple-900"
                   >
-                    <Download className="h-4 w-4" aria-hidden="true" />
-                    {downloadingProductId === resource.id
-                      ? "Preparing..."
-                      : "Download PDF"}
-                  </button>
+                    <ExternalLink className="h-4 w-4" aria-hidden="true" />
+                    Open in Google Drive
+                  </a>
                 </li>
               ))}
             </ul>

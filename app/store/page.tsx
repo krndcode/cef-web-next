@@ -1,14 +1,26 @@
 import Storefront from "./Storefront";
+import { isGoogleDriveLink } from "@/lib/google-drive";
 import { getStoreUser } from "@/lib/store-auth";
 import {
   getActiveProducts,
   getCustomerDownloads,
   getCustomerOrders,
 } from "@/lib/store-queries";
-import type { StoreOrder, StoreProduct, StoreUser } from "@/lib/store-types";
+import type {
+  StoreCatalogProduct,
+  StoreDownload,
+  StoreOrder,
+  StoreProduct,
+  StoreUser,
+} from "@/lib/store-types";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+
+function toCatalogProduct(product: StoreProduct): StoreCatalogProduct {
+  const { downloadUrl, ...catalog } = product;
+  return { ...catalog, hasDownload: isGoogleDriveLink(downloadUrl) };
+}
 
 function StoreSetupNotice({ databaseReady }: { databaseReady: boolean }) {
   return (
@@ -81,12 +93,16 @@ export default async function StorePage({ searchParams }: StorePageProps) {
   }
 
   const { order } = await searchParams;
+  const catalog: StoreCatalogProduct[] = products.map(toCatalogProduct);
+  const customerDownloads: StoreDownload[] = downloads.map(
+    ({ id, title, category }) => ({ id, title, category }),
+  );
   return (
     <Storefront
       user={user}
-      products={products}
+      products={catalog}
       orders={orders}
-      downloads={downloads}
+      downloads={customerDownloads}
       focusOrderId={typeof order === "string" ? order : undefined}
     />
   );

@@ -66,7 +66,7 @@ export const adminProductSchema = z.object({
   priceGhs: z.union([z.string(), z.number()]),
   stockQuantity: z.number().int().min(0).max(1_000_000),
   imageUrl: z.string().trim().max(500).optional().default(""),
-  downloadPath: z.string().trim().max(500).optional().default(""),
+  downloadUrl: z.string().trim().max(500).optional().default(""),
   badge: z.string().trim().max(60).optional().default(""),
   isActive: z.boolean(),
 }).superRefine((product, context) => {
@@ -95,11 +95,11 @@ export const adminProductSchema = z.object({
         message: "Free resources cannot have a price.",
       });
     }
-    if (!product.downloadPath) {
+    if (!product.downloadUrl) {
       context.addIssue({
         code: "custom",
-        path: ["downloadPath"],
-        message: "A PDF download path is required.",
+        path: ["downloadUrl"],
+        message: "A Google Drive PDF link is required.",
       });
     }
   }

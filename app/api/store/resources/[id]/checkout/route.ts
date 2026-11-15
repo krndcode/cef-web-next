@@ -1,9 +1,7 @@
-import { constants } from "node:fs";
-import { access } from "node:fs/promises";
 import { NextResponse } from "next/server";
+import { parseGoogleDriveLink } from "@/lib/google-drive";
 import { getStoreUser, isSameOriginRequest } from "@/lib/store-auth";
 import { getStoreDb } from "@/lib/store-db";
-import { resolveResourceFilePath } from "@/lib/store-resources";
 import { z } from "zod";
 
 export const runtime = "nodejs";
@@ -31,25 +29,18 @@ export async function POST(request: Request, context: RouteContext) {
        WHERE id = $1 AND is_active = TRUE AND product_type = 'free_resource'`,
       [id],
     );
-    const downloadPath = product.rows[0]?.download_path;
-    const filePath = downloadPath ? resolveResourceFilePath(downloadPath) : null;
-    if (!filePath) {
-      return NextResponse.json(
-        { error: "This free resource is not available for download yet." },
-        { status: 404 },
-      );
+    const resource = product.rows[0];
+    if (!resource) {
+      return NextResponse.json({ error: "Resource not found." }, { status: 404 });
     }
 
-    // Refuse to grant access to a product whose PDF has not been uploaded, so
-    // customers never reach a download that can only fail.
-    try {
-      await access(filePath, constants.R_OK);
-    } catch {
-      console.error("Free resource checkout found a missing PDF.", downloadPath);
+    // Refuse to grant access to a product without a usable Google Drive link,
+    // so customers never land on a Drive page that cannot be opened.
+    if (!parseGoogleDriveLink(resource.download_path)) {
       return NextResponse.json(
         {
           error:
-            "The PDF file for this resource has not been uploaded yet. Please check back soon.",
+            "The PDF link for this resource has not been added yet. Please check back soon.",
         },
         { status: 404 },
       );

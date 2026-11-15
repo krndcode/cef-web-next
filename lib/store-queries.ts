@@ -60,7 +60,7 @@ function toProduct(row: ProductRow): StoreProduct {
     imageUrl: row.image_url,
     badge: row.badge,
     productType: row.product_type,
-    downloadPath: row.download_path,
+    downloadUrl: row.download_path,
     isActive: row.is_active,
   };
 }
@@ -126,8 +126,8 @@ export async function getActiveProducts(): Promise<StoreProduct[]> {
 }
 
 /**
- * Free PDFs the customer has already checked out. Only products with an
- * uploaded file are returned, so the store never shows a dead download link.
+ * Free PDFs the customer has already checked out. Only products with a Google
+ * Drive link are returned, so the store never shows a dead download link.
  */
 export async function getCustomerDownloads(
   userId: string,
@@ -141,7 +141,8 @@ export async function getCustomerDownloads(
      WHERE a.user_id = $1
        AND p.is_active = TRUE
        AND p.product_type = 'free_resource'
-       AND p.download_path LIKE '/resources/%.pdf'
+       AND (p.download_path LIKE 'https://drive.google.com/%'
+            OR p.download_path LIKE 'https://docs.google.com/%')
      ORDER BY a.granted_at DESC`,
     [userId],
   );

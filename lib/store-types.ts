@@ -27,8 +27,24 @@ export type StoreProduct = {
   imageUrl: string | null;
   badge: string | null;
   productType: "book" | "free_resource";
-  downloadPath: string | null;
+  /** Google Drive share link for the customer PDF, when this is a free resource. */
+  downloadUrl: string | null;
   isActive: boolean;
+};
+
+/**
+ * Public catalog shape. The Google Drive URL is deliberately removed so it is
+ * never serialized into the storefront page; customers only reach it through
+ * the access-checked download route after checkout.
+ */
+export type StoreCatalogProduct = Omit<StoreProduct, "downloadUrl"> & {
+  hasDownload: boolean;
+};
+
+export type StoreDownload = {
+  id: string;
+  title: string;
+  category: string;
 };
 
 export type StoreOrderItem = {

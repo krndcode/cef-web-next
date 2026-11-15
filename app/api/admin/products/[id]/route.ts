@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { isGoogleDriveLink } from "@/lib/google-drive";
 import { getStoreUser, isSameOriginRequest } from "@/lib/store-auth";
 import { getStoreDb } from "@/lib/store-db";
 import {
@@ -53,12 +54,10 @@ export async function PATCH(request: Request, context: RouteContext) {
       price === null ||
       !validImagePath(product.imageUrl) ||
       (product.productType === "free_resource" &&
-        (!product.downloadPath.startsWith("/resources/") ||
-          product.downloadPath.startsWith("//") ||
-          product.downloadPath.split("/").includes("..")))
+        !isGoogleDriveLink(product.downloadUrl))
     ) {
       return NextResponse.json(
-        { error: "Use a valid price, local image path, and PDF file path in /resources/." },
+        { error: "Use a valid price, local image path, and Google Drive PDF link." },
         { status: 400 },
       );
     }
@@ -80,7 +79,7 @@ export async function PATCH(request: Request, context: RouteContext) {
         product.imageUrl || null,
         product.badge || null,
         product.productType,
-        product.productType === "free_resource" ? product.downloadPath : null,
+        product.productType === "free_resource" ? product.downloadUrl : null,
         product.isActive,
       ],
     );

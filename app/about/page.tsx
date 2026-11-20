@@ -45,7 +45,7 @@ export default function AboutPage() {
       role: "Quality Control Officer",
       department: "Administration & Standards",
       description: "Ensures administrative excellence, operational standards, and quality management across all foundation projects.",
-      image: "/team/ayub-2.jpg",
+      image: "/team/mr-ayub-1.png",
       accentColor: "border-cefPurple text-cefPurple bg-purple-50",
     },
     {
@@ -69,7 +69,7 @@ export default function AboutPage() {
       role: "Assistant Media Director",
       department: "Media & Publicity",
       description: "Assists with media coverage, video editing, social media management, and event publicity.",
-      image: "/team/Wisdom.jpg",
+      image: "/team/apenteng.jpeg",
       accentColor: "border-cefBlue text-cefBlue bg-blue-50",
     },
   ];
